@@ -1,0 +1,103 @@
+# ============================================================================
+# Wifi Auto Handshaker PMKID — configuration
+#
+# This tool is for AUTHORIZED WiFi security auditing ONLY. Capturing handshakes
+# and PMKIDs, and performing deauthentication, without the network owner's
+# permission is illegal in most jurisdictions. You are solely responsible for
+# lawful use.
+#
+# The tool performs CAPTURE ONLY. It never hashes or cracks passwords.
+# ============================================================================
+
+general:
+  interface: null            # wireless interface; null = auto-detect
+  require_root: true         # refuse to run capture without root
+  consent_required: true     # interactive authorization gate on every autonomous run
+  output_root: null          # null = ./data
+  log_level: "INFO"
+
+adapter:
+  auto_monitor: true         # auto-enable monitor mode
+  reset_on_exit: true        # restore managed mode on shutdown
+  check_injection: true      # run aireplay-ng --test before capturing
+  stop_conflicting_services: true  # airmon-ng check kill (kills NetworkManager etc.)
+
+scan:
+  dwell: 12                  # seconds to listen on each channel
+  bands: ["2.4GHz", "5GHz"]  # 6GHz optional if hardware supports it
+  min_signal: -90            # ignore APs weaker than this (dBm)
+  adaptive: false            # two-pass scan (quick survey + focused dwell)
+  quick_dwell: 5             # quick-pass seconds (adaptive mode)
+
+capture:
+  max_rounds: 3              # capture+deauth+verify rounds per target
+  pmkid_duration: 45         # seconds per PMKID attempt
+  pmf_fallback: true         # last-resort hcxdumptool attack (handles PMF/802.11w)
+  write_interval: 2
+  wpa_only: true             # skip WEP / open networks
+
+verify:
+  require_full_handshake: true   # strict: M1+M2+M3+M4 must all be present
+  structural_checks: true        # direction / nonce+MIC length / replay counter
+  min_packets: 4                 # minimum EAPOL frames in the capture
+  tools: ["tshark", "aircrack-ng", "hcxpcapngtool", "cowpatty", "pyrit", "capinfos"]
+  delete_on_fail: true           # anything that is NOT a 4-way HS is deleted
+  quarantine_before_delete: true
+
+deauth:
+  enabled: true
+  max_bursts: 8
+  burst_size: 15
+  cooldown: 4
+  reason_codes: [1, 4, 7]        # 1 unspec, 4 disassoc, 7 class3-from-nonassoc
+  # "scapy" = raw-frame injection (honours reason codes on the wire); skipped if
+  # the scapy Python package is not installed.
+  tools: ["scapy", "aireplay-ng", "mdk4", "bettercap"]
+
+pmkid:
+  enabled: true
+
+learning:
+  enabled: true
+  exploration: 0.25           # exploration probability
+  strategy: "thompson"        # "thompson" | "ucb" | "epsilon"
+  transfer: 0.5               # cross-AP transfer weight (0 = per-AP only)
+  decay: 0.95                 # per-minute decay for stale outcomes
+  min_observations: 2         # min weighted trials before trusting policy
+
+nim:
+  enabled: false                 # NVIDIA NIM is OPTIONAL; tool is fully independent
+  api_key: null                  # prefer NIM_API_KEY environment variable
+  base_url: "https://integrate.api.nvidia.com/v1"
+  model: null                    # explicit override (else smart model selection)
+  prefer_tier: "fast"            # "fast" = cheap/latency, "large" = capable
+  discover_models: false         # query /v1/models to expand the registry
+  rate_per_minute: 20            # token-bucket rate limit
+  burst: 5
+  max_suggestions: 8
+  timeout: 20
+  send_sensitive_context: false  # pseudonymize BSSID/ESSID before sending to NIM
+
+targets:
+  bssid: []                      # explicit BSSIDs to target (empty = auto-prioritize)
+  essid: []
+  channel: []
+  max_targets: 0                 # 0 = unlimited
+  exclude: []                    # never touch these BSSIDs
+
+tools:
+  overrides: {}                  # e.g. {"mdk4": "/usr/bin/mdk4"}
+
+wps:
+  enabled: true                  # include WPS assessment alongside capture
+  timeout: 120                   # seconds per attack method
+  force_timeout: 180             # seconds for pixie-force (full-range offline)
+  pixie_dust: true               # offline pixie-dust test (reaver -K 1 / bully -d)
+  pixie_force: false             # full-range offline brute (pixiewps -f); slower
+  pixie_loop: false              # reaver -P: hash collection (avoids lockout)
+  default_pin: true              # test vendor default PINs (Belkin + D-Link)
+  push_button: false             # oneshot --pbc: needs physical WPS button press
+  show_all: false                # wash -a: also list APs without WPS
+  ignore_fcs: true               # wash -C: ignore frame checksum errors
+  transfer: 0.5                  # cross-AP WPS learning shrinkage (0 = per-AP only)
+  exploration: 0.0               # shuffle the learned WPS order with this prob

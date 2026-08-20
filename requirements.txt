@@ -1,0 +1,6 @@
+# Runtime dependencies for Wifi Auto Handshaker PMKID (Python 3.12+).
+# The Kali tools themselves (aircrack-ng, hcxdumptool, tshark, mdk4, bettercap)
+# are installed at the system level and detected at runtime — they are NOT pip
+# packages.
+PyYAML>=6.0
+rich>=13.0

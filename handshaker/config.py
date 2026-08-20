@@ -1,0 +1,223 @@
+"""Configuration loading with validation.
+
+Validation is strict on purpose: unknown keys or out-of-range values are
+rejected so the runtime never operates on a guessed or silently-broken config.
+"""
+
+from __future__ import annotations
+
+import copy
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from .constants import DEFAULT_CONFIG
+from .exceptions import ConfigError
+
+# Allowed top-level keys. Adding a feature requires adding its key here —
+# there is no silent pass-through.
+_ALLOWED_TOP_KEYS = {
+    "general",
+    "adapter",
+    "scan",
+    "capture",
+    "verify",
+    "deauth",
+    "pmkid",
+    "learning",
+    "nim",
+    "targets",
+    "tools",
+    "wps",
+}
+
+_DEFAULTS: dict[str, Any] = {
+    "general": {
+        "interface": None,          # auto-detect when None
+        "require_root": True,
+        "consent_required": True,
+        "output_root": None,        # defaults to data/ under the project
+        "log_level": "INFO",
+    },
+    "adapter": {
+        "auto_monitor": True,
+        "reset_on_exit": True,
+        "check_injection": True,
+        "stop_conflicting_services": True,  # airmon-ng check kill (disruptive)
+    },
+    "scan": {
+        "dwell": 12,                # seconds per channel
+        "bands": ["2.4GHz", "5GHz"],
+        "min_signal": -90,          # dBm threshold
+        "adaptive": False,          # two-pass scan (quick survey + focused dwell)
+        "quick_dwell": 5,           # quick-pass seconds (adaptive mode)
+    },
+    "capture": {
+        "max_rounds": 3,            # capture+deauth+verify rounds per target
+        "pmkid_duration": 45,       # seconds for a PMKID attempt
+        "pmf_fallback": True,       # last-resort hcxdumptool attack (handles PMF/802.11w)
+        "write_interval": 2,        # force-flush interval (seconds)
+        "wpa_only": True,           # ignore WEP / OPN targets
+    },
+    "verify": {
+        # Strict: require ALL 4 EAPOL messages (M1..M4) of the handshake.
+        "require_full_handshake": True,
+        # If strict is off, at minimum require a crackable M2(+SNonce,MIC)+M3 pair.
+        "min_packets": 4,           # minimum EAPOL frames in the capture
+        # Packet-level structural validation (direction, nonce/MIC, replay counter).
+        "structural_checks": True,
+        # Independent verifiers to consult (intersection of what is present).
+        "tools": ["tshark", "aircrack-ng", "hcxpcapngtool", "cowpatty", "pyrit", "capinfos"],
+        "delete_on_fail": True,     # reject & delete anything that isn't a 4-way HS
+        "quarantine_before_delete": True,
+    },
+    "deauth": {
+        "enabled": True,
+        "max_bursts": 8,
+        "burst_size": 15,           # deauth packets per burst
+        "cooldown": 4,              # seconds between bursts
+        "reason_codes": [1, 4, 7],  # 1=unspec, 4=disassoc, 7=class3-failure
+        # Engine order. "scapy" = raw-frame injection (honours reason codes);
+        # detected at runtime via import, silently skipped if not installed.
+        "tools": ["scapy", "aireplay-ng", "mdk4", "bettercap"],
+    },
+    "pmkid": {
+        "enabled": True,
+    },
+    "learning": {
+        "enabled": True,
+        "exploration": 0.25,        # exploration probability (per strategy)
+        "strategy": "thompson",     # "thompson" | "ucb" | "epsilon"
+        "transfer": 0.5,            # cross-AP shrinkage weight (0 = per-AP only)
+        "decay": 0.95,              # per-minute decay for stale outcomes
+        "min_observations": 2,      # min weighted trials before trusting policy
+    },
+    "nim": {
+        "enabled": False,           # fully optional; tool is independent without it
+        "api_key": None,            # NIM_API_KEY env var preferred
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "model": None,              # explicit model override (else smart selection)
+        "prefer_tier": "fast",      # "fast" (cheap/latency) or "large" (capable)
+        "discover_models": False,   # query /v1/models to expand the registry
+        "rate_per_minute": 20,      # token-bucket rate limit
+        "burst": 5,
+        "max_suggestions": 8,
+        "timeout": 20,
+        # Privacy boundary: by default, BSSID/ESSID are NOT sent to the remote
+        # NIM endpoint (they are pseudonymized). Set True only with consent, as
+        # a scan can contain identifying info about nearby networks.
+        "send_sensitive_context": False,
+    },
+    "targets": {
+        "bssid": [],                # optional explicit targets
+        "essid": [],
+        "channel": [],
+        "max_targets": 0,           # 0 = unlimited
+        "exclude": [],              # BSSIDs to never touch
+    },
+    "tools": {
+        # Per-tool explicit overrides; None means "auto-detect".
+        "overrides": {},
+    },
+    "wps": {
+        "enabled": True,        # include WPS assessment alongside handshake capture
+        "timeout": 120,         # seconds per attack method
+        "force_timeout": 180,   # seconds for pixie-force (full-range offline)
+        "pixie_dust": True,     # offline pixie-dust test (reaver -K 1 / bully -d)
+        "pixie_force": False,   # full-range offline brute (pixiewps -f); slower
+        "pixie_loop": False,    # reaver -P: hash collection (avoids lockout)
+        "default_pin": True,    # test vendor default PINs (Belkin + D-Link)
+        "push_button": False,   # oneshot --pbc: requires physical WPS button press
+        "show_all": False,      # wash -a: list APs even without WPS
+        "ignore_fcs": True,     # wash -C: ignore frame checksum errors
+        "transfer": 0.5,        # cross-AP WPS learning shrinkage (0 = per-AP only)
+        "exploration": 0.0,     # shuffle the learned WPS order with this prob
+    },
+}
+
+
+def _merge(default: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Deep-merge an override dict onto a defaults dict (no new keys allowed)."""
+    out = copy.deepcopy(default)
+    for key, value in override.items():
+        if key not in out:
+            raise ConfigError(f"Unknown config key: {key!r}")
+        if isinstance(value, dict) and isinstance(out[key], dict):
+            out[key] = _merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def load_config(path: Path | str | None = None) -> dict[str, Any]:
+    """Load config from ``path`` (or the default location) and validate it."""
+    cfg_path = Path(path) if path else DEFAULT_CONFIG
+    raw: dict[str, Any] = {}
+    if cfg_path.exists():
+        try:
+            loaded = yaml.safe_load(cfg_path.read_text()) or {}
+        except yaml.YAMLError as exc:
+            raise ConfigError(f"Failed to parse config {cfg_path}: {exc}") from exc
+        if not isinstance(loaded, dict):
+            raise ConfigError(f"Config {cfg_path} must be a YAML mapping.")
+        raw = loaded
+
+    unknown = set(raw) - _ALLOWED_TOP_KEYS
+    if unknown:
+        raise ConfigError(f"Unknown top-level config section(s): {sorted(unknown)}")
+
+    cfg = _merge(_DEFAULTS, raw)
+
+    # --- Range / sanity validation (fail fast, no silent clamping) --- #
+    verify = cfg["verify"]
+    if not isinstance(verify["require_full_handshake"], bool):
+        raise ConfigError("verify.require_full_handshake must be a boolean.")
+    if verify["min_packets"] < 1:
+        raise ConfigError("verify.min_packets must be >= 1.")
+
+    learn = cfg["learning"]
+    if not (0.0 <= float(learn["exploration"]) <= 1.0):
+        raise ConfigError("learning.exploration must be in [0, 1].")
+    if not (0.0 <= float(learn["decay"]) <= 1.0):
+        raise ConfigError("learning.decay must be in [0, 1].")
+    if not (0.0 <= float(learn.get("transfer", 0.5)) <= 1.0):
+        raise ConfigError("learning.transfer must be in [0, 1].")
+
+    deauth = cfg["deauth"]
+    if deauth["burst_size"] < 1 or deauth["max_bursts"] < 0:
+        raise ConfigError("deauth.burst_size must be >= 1 and max_bursts >= 0.")
+
+    # Reason codes must be ints in the valid 802.11 range.
+    for rc in deauth.get("reason_codes", []):
+        if not isinstance(rc, int) or not (0 <= rc <= 65535):
+            raise ConfigError(f"deauth.reason_codes contains invalid reason code {rc!r}")
+
+    # Bands must be a known set.
+    allowed_bands = {"2.4GHz", "5GHz", "6GHz"}
+    for band in cfg["scan"].get("bands", []):
+        if band not in allowed_bands:
+            raise ConfigError(f"scan.bands contains unknown band {band!r} (allowed: {sorted(allowed_bands)})")
+
+    # Learning strategy enum.
+    allowed_strategies = {"thompson", "ucb", "epsilon"}
+    strategy = learn.get("strategy", "thompson")
+    if strategy not in allowed_strategies:
+        raise ConfigError(f"learning.strategy must be one of {sorted(allowed_strategies)}, got {strategy!r}")
+
+    # NIM prefer_tier enum.
+    nim = cfg["nim"]
+    if nim.get("prefer_tier") not in (None, "fast", "large"):
+        raise ConfigError("nim.prefer_tier must be 'fast' or 'large'")
+    wps = cfg["wps"]
+    if not (0.0 <= float(wps.get("transfer", 0.5)) <= 1.0):
+        raise ConfigError("wps.transfer must be in [0, 1].")
+
+    # Target MACs must parse as MAC addresses.
+    from .utils.validation import parse_mac
+    targets = cfg["targets"]
+    for mac in targets.get("bssid", []) + targets.get("exclude", []):
+        if parse_mac(mac) is None:
+            raise ConfigError(f"targets contains invalid MAC address {mac!r}")
+
+    return cfg

@@ -98,4 +98,4 @@ def test_sanitize_unicode_essid():
 def test_package_classifiers_linux():
     text = open("pyproject.toml").read()
     assert "POSIX :: Linux" in text
-    assert 'version = "1.6.3"' in text
+    assert 'version = "1.6.4"' in text

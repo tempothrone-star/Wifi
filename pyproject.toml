@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wifi-auto-handshaker-pmkid"
-version = "1.6.3"
+version = "1.6.4"
 description = "Autonomous WiFi 4-way handshake & PMKID capturer for Kali/Linux (Python 3.11+; capture only, no cracking)."
 readme = "README.md"
 requires-python = ">=3.11"

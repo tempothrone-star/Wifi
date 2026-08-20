@@ -72,17 +72,18 @@ class EapolFrame:
     nonce: str             # WPA Key Nonce content (hex)
     msgnr: int | None      # Wireshark's own message number (1-4), if present
     replay_counter: int | None
+    pairwise: bool | None = None  # Key Type: True=pairwise, False=group, None=unknown
     message: int = 0       # 1..4, 0 = unclassified (our classification)
 
     @property
     def nonce_valid(self) -> bool:
         """Nonce of correct 32-byte length (when expected)."""
-        return len(self.nonce) == NONCE_HEX_LEN
+        return len(_hex_compact(self.nonce)) == NONCE_HEX_LEN
 
     @property
     def mic_valid(self) -> bool:
         """MIC of correct 16-byte length (when expected)."""
-        return len(self.mic) == MIC_HEX_LEN
+        return len(_hex_compact(self.mic)) == MIC_HEX_LEN
 
 
 @dataclass
@@ -398,12 +399,18 @@ class HandshakeVerifier:
                 has_mic = parts[11].strip() == "1"
             else:
                 has_mic = bool(mic)
+            pairwise = None
+            if len(parts) >= 13 and parts[12].strip() in ("0", "1"):
+                pairwise = parts[12].strip() == "1"
+            # tshark may emit colon-separated hex; store compact so M1/M3 match.
+            mic = _hex_compact(mic)
+            nonce = _hex_compact(nonce)
 
             frame = EapolFrame(
                 frame_number=frame_number, bssid=bssid, src=src, dst=dst,
                 key_info=key_info, has_ack=has_ack, has_install=has_install,
                 has_mic=has_mic, mic=mic, nonce=nonce, msgnr=msgnr,
-                replay_counter=replay_counter,
+                replay_counter=replay_counter, pairwise=pairwise,
             )
             frame.message = _classify_message(frame)
 
@@ -539,6 +546,31 @@ def _is_hex(value: str) -> bool:
     return bool(value) and all(c in "0123456789abcdefABCDEF" for c in value)
 
 
+def _nonce_eq(a: str, b: str) -> bool:
+    ca, cb = _hex_compact(a).lower(), _hex_compact(b).lower()
+    return bool(ca) and ca == cb
+
+
+def _mic_is_present(mic: str) -> bool:
+    compact = _hex_compact(mic).lower()
+    return bool(compact) and set(compact) != {"0"}
+
+
+def _count_22000(path: str) -> tuple[int | None, int | None]:
+    """Count WPA*02* (EAPOL) and WPA*01* (PMKID) lines. None if unreadable."""
+    try:
+        text = Path(path).read_text(errors="replace")
+    except OSError:
+        return None, None
+    n_eapol = n_pmkid = 0
+    for line in text.splitlines():
+        if line.startswith("WPA*02*"):
+            n_eapol += 1
+        elif line.startswith("WPA*01*"):
+            n_pmkid += 1
+    return n_eapol, n_pmkid
+
+
 def _has_correlated_exchange(ev: HandshakeEvidence, *, need_full: bool) -> bool:
     """True when M1–M4 (or M2+M3) belong to the *same* AP/STA exchange."""
     by_msg: dict[int, list[EapolFrame]] = {1: [], 2: [], 3: [], 4: []}
@@ -553,7 +585,7 @@ def _has_correlated_exchange(ev: HandshakeEvidence, *, need_full: bool) -> bool:
             m3_candidates = list(by_msg[3])
         else:
             m3_candidates = [m3 for m3 in by_msg[3]
-                             if anonce and m3.nonce == anonce]
+                             if anonce and _nonce_eq(m3.nonce, anonce)]
             if ap and parse_mac(m1.src) != ap:
                 continue
         for m3 in m3_candidates:
@@ -582,7 +614,7 @@ def _has_correlated_exchange(ev: HandshakeEvidence, *, need_full: bool) -> bool:
             ]
             for m2 in m2s:
                 for m4 in m4s:
-                    if _nonce_is_present(m4.nonce) and m4.nonce != m2.nonce:
+                    if _nonce_is_present(m4.nonce) and not _nonce_eq(m4.nonce, m2.nonce):
                         continue
                     return True
     return False
@@ -610,7 +642,11 @@ def _classify_from_flags(f: EapolFrame) -> int:
         M3: Key ACK + Install + MIC        (GTK)
         M2: MIC, no ACK/Install, *non-zero* nonce     (SNonce)
         M4: MIC, no ACK/Install, absent *or all-zero* nonce
+
+    Group-key frames (``key_type=0``) are not 4-way handshake messages.
     """
+    if f.pairwise is False:
+        return 0
     if f.has_ack and not f.has_mic:
         return 1
     if f.has_mic and f.has_ack and f.has_install:
@@ -695,6 +731,10 @@ def _structural_problem(ev: HandshakeEvidence) -> str | None:
                 compact = _hex_compact(f.mic)
                 if len(compact) != MIC_HEX_LEN or not _is_hex(compact):
                     return f"message {msg} has a malformed MIC ({len(compact)} hex chars)"
+    # M2/M3 must carry a non-zero MIC (all-zero is padding, not a real MIC).
+    for msg in (2, 3):
+        if by_msg[msg] and not any(_mic_is_present(f.mic) for f in by_msg[msg]):
+            return f"message {msg} has an all-zero or missing MIC"
 
     # Replay-counter monotonicity is checked *per handshake*, not across every
     # EAPOL frame from a MAC in a long capture (a later re-auth legitimately
@@ -702,7 +742,7 @@ def _structural_problem(ev: HandshakeEvidence) -> str | None:
     # the same STA in frame-number order.
     for m1 in by_msg[1]:
         for m3 in by_msg[3]:
-            if m1.nonce and m3.nonce and m1.nonce == m3.nonce:
+            if m1.nonce and m3.nonce and _nonce_eq(m1.nonce, m3.nonce):
                 if (m1.replay_counter is not None and m3.replay_counter is not None
                         and m3.replay_counter < m1.replay_counter):
                     return (f"replay counter decreased within handshake for {m1.src}: "

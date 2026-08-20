@@ -69,7 +69,9 @@ def build_parser() -> argparse.ArgumentParser:
     pmkid.add_argument("--convert", metavar="FILE", help="convert existing capture to 22000")
 
     verify = sub.add_parser("verify", help="verify a capture is a 4-way handshake")
-    verify.add_argument("file", help="capture file (.pcap/.pcapng)")
+    verify.add_argument("file", nargs="?", help="capture file (.pcap/.pcapng)")
+    verify.add_argument("--dir", metavar="DIR",
+                        help="verify every .cap/.pcap/.pcapng in a directory")
     verify.add_argument("--json", action="store_true", help="machine-readable output")
 
     analyze = sub.add_parser("analyze", help="deep-analyze a capture (capinfos + tshark + client activity)")
@@ -326,10 +328,36 @@ def _cmd_pmkid(engine: Engine, args) -> int:
 
 
 def _cmd_verify(engine: Engine, args) -> int:
+    from pathlib import Path
     from .tui import UI, render_verify
 
-    report = engine.verify(args.file)
     ui = UI()
+    if args.dir:
+        root = Path(args.dir)
+        if not root.is_dir():
+            print(f"error: not a directory: {root}", file=sys.stderr)
+            return EXIT_CAPTURE_FAILED
+        files = sorted(
+            p for p in root.iterdir()
+            if p.is_file() and p.suffix.lower() in {".cap", ".pcap", ".pcapng"}
+        )
+        reports = [engine.verify(str(p)) for p in files]
+        if args.json:
+            ui.json({
+                "dir": str(root),
+                "count": len(reports),
+                "passed": sum(1 for r in reports if r.passed),
+                "reports": [r.to_dict() for r in reports],
+            })
+        else:
+            ui.title(f"Batch verify — {len(files)} file(s)")
+            for r in reports:
+                render_verify(ui, r)
+        return EXIT_OK if reports and all(r.passed for r in reports) else EXIT_VERIFY_FAILED
+    if not args.file:
+        print("error: provide a capture file or --dir", file=sys.stderr)
+        return EXIT_CAPTURE_FAILED
+    report = engine.verify(args.file)
     if args.json:
         ui.json(report.to_dict())
     else:

@@ -59,6 +59,7 @@ _DEFAULTS: dict[str, Any] = {
         "pmf_fallback": True,       # last-resort hcxdumptool attack (handles PMF/802.11w)
         "write_interval": 2,        # force-flush interval (seconds)
         "wpa_only": True,           # ignore WEP / OPN targets
+        "skip_verified": True,      # don't re-engage APs already in data/handshakes/
     },
     "verify": {
         # Strict: require ALL 4 EAPOL messages (M1..M4) of the handshake.

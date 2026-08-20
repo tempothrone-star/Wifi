@@ -360,7 +360,25 @@ class Engine:
                 log.info("WPS: %s not vulnerable (%s)", ap.essid or ap.bssid, verdict.status)
 
     # ------------------------------------------------------------------ #
+    def _already_stored(self, bssid: str) -> bool:
+        """True when a verified handshake file for this BSSID is already on disk."""
+        compact = "".join(c for c in (bssid or "").lower() if c.isalnum())
+        hs = constants.HANDSHAKES_DIR
+        if not compact or not hs.exists():
+            return False
+        try:
+            return any(p.is_file() and compact in p.name.lower() for p in hs.iterdir())
+        except OSError:
+            return False
+
     def _process_target(self, mon_iface, ap, scan, candidates, nim_hint, stats, session_id) -> None:
+        explicit = ap.bssid.lower() in {
+            str(b).lower() for b in self.config["targets"].get("bssid", [])
+        }
+        if (self.config["capture"].get("skip_verified", True)
+                and not explicit and self._already_stored(ap.bssid)):
+            log.info("skipping %s — verified handshake already stored", ap.essid or ap.bssid)
+            return
         stats.targets_attacked += 1
         self.store.ensure_ap(ap.bssid, essid=ap.essid, channel=ap.channel,
                              security=ap.security_label,

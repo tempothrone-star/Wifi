@@ -8,6 +8,21 @@ project uses [Semantic Versioning](https://semver.org/).
 > **This tool is for authorized WiFi security testing only.** It performs
 > capture only — it never hashes or cracks passwords.
 
+## [1.6.4] — 2026-08
+
+### Verification & automation
+- **Pairwise-only EAPOL** — group-key frames (`key_type=0`) are not counted as
+  M1–M4. tshark now also exports `key_info.key_type`.
+- **Nonce/MIC normalisation** — colon-separated tshark hex is compacted so
+  M1/M3 ANonce correlation works on real dumps.
+- **All-zero M2/M3 MIC** is rejected (padding, not a MIC).
+- **hcxpcapngtool** confirmation counts `WPA*02*` / `WPA*01*` lines in the
+  22000 file (stable across summary-text changes).
+- **`capture.skip_verified`** (default true) skips APs that already have a
+  stored handshake; explicit `targets.bssid` still wins.
+- **`handshaker verify --dir`** batch-verifies every capture in a folder.
+- **`scripts/ci.sh` / `make ci`** run pytest + pyflakes without wireless hardware.
+
 ## [1.6.3] — 2026-08
 
 ### Reliability (non-offensive engineering)

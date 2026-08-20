@@ -35,6 +35,7 @@ capture:
   pmf_fallback: true         # last-resort hcxdumptool attack (handles PMF/802.11w)
   write_interval: 2
   wpa_only: true             # skip WEP / open networks
+  skip_verified: true        # skip APs that already have a stored handshake
 
 verify:
   require_full_handshake: true   # strict: M1+M2+M3+M4 must all be present

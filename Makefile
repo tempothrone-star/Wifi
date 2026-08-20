@@ -25,6 +25,9 @@ dev: ## Install dev/test dependencies
 test: ## Run the full test suite
 	$(VENV_PY) -m pytest tests/ -q
 
+ci: ## Offline CI: pytest + pyflakes (no wireless hardware)
+	$(PY) scripts/ci.sh
+
 lint: ## Lint with pyflakes
 	$(VENV_PY) -m pyflakes handshaker/ tests/ bootstrap.py
 

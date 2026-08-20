@@ -17,7 +17,9 @@ data/handshakes/*
 data/pmkid/*
 data/quarantine/*
 data/learning/*.json
+data/learning/*.json.bak
 data/learning/*.tmp
+data/learning/*.bak
 data/learning/*.db
 data/learning/*.db-wal
 data/learning/*.db-shm

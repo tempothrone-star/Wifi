@@ -283,17 +283,22 @@ def _cmd_capture(engine: Engine, args) -> int:
         # learning across iterations (state persists in data/learning/).
         import time as _time
         iteration = 0
-        ui.info(f"Long-run mode: scanning every {args.loop_interval}s (Ctrl-C to stop)")
+        if not args.json:
+            ui.info(f"Long-run mode: scanning every {args.loop_interval}s (Ctrl-C to stop)")
         try:
             while True:
                 iteration += 1
-                ui.info(f"--- iteration {iteration} ---")
+                if not args.json:
+                    ui.info(f"--- iteration {iteration} ---")
                 stats = engine.run_auto(iface, args.scan_duration)
                 if stats is not None and not args.json:
                     render_run_summary(ui, stats)
                 _time.sleep(args.loop_interval)
         except KeyboardInterrupt:
-            ui.info(f"\nStopped after {iteration} iteration(s).")
+            if not args.json:
+                ui.info(f"\nStopped after {iteration} iteration(s).")
+            else:
+                print(f"Stopped after {iteration} iteration(s).", file=sys.stderr)
 
     if stats is not None:
         if args.json:

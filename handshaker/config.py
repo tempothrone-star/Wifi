@@ -294,6 +294,13 @@ def load_config(path: Path | str | None = None) -> dict[str, Any]:
     nim_url = str(nim.get("base_url") or "")
     if cfg["nim"].get("enabled") and nim_url and not nim_url.lower().startswith("https://"):
         raise ConfigError("nim.base_url must use https:// when NIM is enabled")
+    if cfg["nim"].get("enabled") and float(nim.get("rate_per_minute") or 0) <= 0:
+        raise ConfigError("nim.rate_per_minute must be > 0 when NIM is enabled")
+    # Cross-field: JSON logging level must be a known name.
+    log_level = str(cfg["general"].get("log_level") or "INFO").upper()
+    if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+        raise ConfigError(f"general.log_level must be a standard logging level, got {log_level!r}")
+    cfg["general"]["log_level"] = log_level
 
     # Honour output_root / installed-package data location.
     rebind_data_dirs(cfg["general"].get("output_root"))

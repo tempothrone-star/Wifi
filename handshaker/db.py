@@ -63,6 +63,10 @@ CREATE TABLE IF NOT EXISTS captures (
 );
 CREATE INDEX IF NOT EXISTS idx_actions_bssid ON actions(bssid);
 CREATE INDEX IF NOT EXISTS idx_captures_bssid ON captures(bssid);
+CREATE TABLE IF NOT EXISTS schema_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -99,6 +103,9 @@ class ResultsDB:
             conn.execute("ALTER TABLE sessions ADD COLUMN status TEXT")
         if "env" not in cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN env TEXT")
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schema_version', '2')"
+        )
 
     # ------------------------------------------------------------------ #
     def start_session(self, interface: str, env: str | None = None) -> int:

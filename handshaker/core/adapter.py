@@ -126,17 +126,27 @@ class AdapterManager:
         raise AdapterError(f"Could not enable monitor mode on {interface} (airmon-ng/iw unavailable).")
 
     def reset(self, interface: str) -> None:
-        """Restore managed mode and restart network services."""
-        if self.registry.has(TOOL_AIRMON_NG):
-            self.registry.airmon().stop_monitor(interface)
-        if self.registry.has(TOOL_IW):
-            self.registry.iw().set_mode(interface, "managed")
-        # Only restart services we actually stopped.
-        if self._killed_services:
-            run(["service", "NetworkManager", "restart"], timeout=30, check=False)
-            run(["service", "wpa_supplicant", "restart"], timeout=30, check=False)
-            self._killed_services = False
-        log.info("Adapter %s reset to managed mode", interface)
+        """Restore managed mode and restart network services.
+
+        Safe to call twice: a second reset is a no-op after the first succeeds
+        (SIGINT + finally both invoke cleanup).
+        """
+        if getattr(self, "_reset_in_progress", False):
+            return
+        self._reset_in_progress = True
+        try:
+            if self.registry.has(TOOL_AIRMON_NG):
+                self.registry.airmon().stop_monitor(interface)
+            if self.registry.has(TOOL_IW):
+                self.registry.iw().set_mode(interface, "managed")
+            # Only restart services we actually stopped.
+            if self._killed_services:
+                run(["service", "NetworkManager", "restart"], timeout=30, check=False)
+                run(["service", "wpa_supplicant", "restart"], timeout=30, check=False)
+                self._killed_services = False
+            log.info("Adapter %s reset to managed mode", interface)
+        finally:
+            self._reset_in_progress = False
 
     def check_injection(self, interface: str) -> bool:
         """Run aireplay-ng --test; return True only on observed success."""

@@ -96,11 +96,17 @@ class UI:
             print(text)
 
     def json(self, data: dict) -> None:
-        if self.rich:
-            self._console.print_json(data=data)
-        else:
-            import json
-            print(json.dumps(data, indent=2))
+        """Write JSON to stdout only (stderr stays free for diagnostics).
+
+        Always includes ``schema_version`` so scripts can pin a contract.
+        Uses stdlib ``json.dumps`` — never Rich markup — so ``| jq`` works.
+        """
+        import json
+        import sys
+        from . import __version__
+        payload = {"schema_version": 1, "handshaker_version": __version__, **data}
+        sys.stdout.write(json.dumps(payload, indent=2, default=str) + "\n")
+        sys.stdout.flush()
 
 
 # --------------------------------------------------------------------------- #

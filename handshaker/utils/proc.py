@@ -28,6 +28,15 @@ class ProcResult:
         return self.returncode == 0 and not self.timed_out
 
     @property
+    def state(self) -> str:
+        """Explicit lifecycle: ``TIMED_OUT`` | ``EXITED_OK`` | ``EXITED_ERR``."""
+        if self.timed_out:
+            return "TIMED_OUT"
+        if self.returncode == 0:
+            return "EXITED_OK"
+        return "EXITED_ERR"
+
+    @property
     def output(self) -> str:
         """Combined stdout+stderr; used by most CLI tools that mix streams."""
         return (self.stdout + "\n" + self.stderr).strip()

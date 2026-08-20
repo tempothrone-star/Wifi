@@ -206,9 +206,13 @@ class WpsHistory:
         if not self.path:
             return
         import os
+        import shutil
         with self._lock:
+            self._data.setdefault("schema_version", 2)
             tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.{time.time_ns()}.tmp")
             tmp.write_text(json.dumps(self._data, indent=2))
+            if self.path.exists():
+                shutil.copy2(self.path, self.path.with_suffix(self.path.suffix + ".bak"))
             tmp.replace(self.path)
 
     def record(self, key: str, method: str, success: bool) -> None:

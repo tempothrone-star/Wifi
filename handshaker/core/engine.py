@@ -12,6 +12,7 @@ the operator has explicitly acknowledged authorized use.
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import shutil
@@ -84,7 +85,9 @@ class RunStats:
 
 class Engine:
     def __init__(self, config: dict) -> None:
-        self.config = config
+        # Isolate from the caller's mapping so later mutations of the loaded
+        # YAML dict cannot alias into a running engine.
+        self.config = copy.deepcopy(config)
         overrides = config["tools"].get("overrides", {})
         self.registry = ToolRegistry(overrides)
         self.adapter = AdapterManager(self.registry)

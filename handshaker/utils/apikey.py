@@ -61,11 +61,18 @@ class ApiKeyStatus:
 
 
 def load_nim_key(config: dict | None = None) -> str | None:
-    """Resolve the NIM API key from config, else ``NIM_API_KEY`` env var."""
-    cfg_key = None
+    """Resolve the NIM API key.
+
+    Precedence (documented and tested): environment ``NIM_API_KEY`` >
+    ``nim.api_key`` in config. Empty strings are ignored.
+    """
+    env = (os.environ.get("NIM_API_KEY") or "").strip() or None
+    if env:
+        return env
     if config and config.get("nim", {}).get("api_key"):
-        cfg_key = config["nim"]["api_key"]
-    return cfg_key or os.environ.get("NIM_API_KEY")
+        cfg_key = str(config["nim"]["api_key"]).strip()
+        return cfg_key or None
+    return None
 
 
 def format_check(key: str | None) -> ApiKeyStatus | None:

@@ -53,7 +53,9 @@ class LearningStore:
         self.enabled = enabled
         # RLock: record() -> ensure_ap() re-enters the lock on the same thread.
         self._lock = threading.RLock()
-        self._data: dict[str, Any] = {"version": 1, "aps": {}}
+        self._data: dict[str, Any] = {
+            "version": 2, "schema_version": 2, "created_by": "handshaker", "aps": {},
+        }
         if self.enabled:
             self._load()
 
@@ -64,6 +66,7 @@ class LearningStore:
         try:
             raw = json.loads(self.path.read_text())
             if isinstance(raw, dict) and isinstance(raw.get("aps"), dict):
+                raw.setdefault("schema_version", int(raw.get("version") or 1))
                 self._data = raw
         except (json.JSONDecodeError, OSError) as exc:
             raise LearningStateError(f"Corrupt learning state {self.path}: {exc}") from exc
@@ -71,10 +74,15 @@ class LearningStore:
     def save(self) -> None:
         if not self.enabled or not self.path:
             return
+        import shutil
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._data["schema_version"] = 2
+        self._data["version"] = 2
         tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.{time.time_ns()}.tmp")
         with self._lock:
             tmp.write_text(json.dumps(self._data, indent=2))
+            if self.path.exists():
+                shutil.copy2(self.path, Path(str(self.path) + ".bak"))
             tmp.replace(self.path)
 
     # ------------------------------------------------------------------ #

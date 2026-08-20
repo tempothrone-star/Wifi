@@ -37,7 +37,8 @@ and refuses to operate without it.
 
 ## Requirements
 
-* **Python 3.11+** (declared in `pyproject.toml`; classifiers include 3.11 and 3.12).
+* **Python 3.11+ on Linux** (Kali/Debian wireless toolchain; not a general
+  cross-platform library). Classifiers include 3.11, 3.12, and POSIX/Linux.
 * **Kali Linux** (or another Linux with the wireless toolchain installed).
 * Root privileges (`sudo`).
 * A wireless adapter that supports **monitor mode** and **packet injection**.
@@ -119,7 +120,8 @@ rich TUI).
 All commands render through a **rich** TUI (banner, tables, panels, status
 icons) and gracefully degrade to plain text when `rich` is absent. `--json`
 flags on `scan`, `capture`, `verify`, `analyze`, `wps`, and `doctor` emit machine-readable
-output for scripting.
+JSON **on stdout only** (diagnostics go to stderr). Every JSON object includes
+`schema_version` (currently `1`) and `handshaker_version`.
 
 ## Quick start
 

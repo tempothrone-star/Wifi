@@ -79,7 +79,7 @@ class NimClient:
         cfg = (config or {}).get("nim", {}) or {}
         self.cfg = NimConfig(
             enabled=bool(cfg.get("enabled")),
-            api_key=cfg.get("api_key") or os.environ.get("NIM_API_KEY"),
+            api_key=(os.environ.get("NIM_API_KEY") or "").strip() or cfg.get("api_key"),
             base_url=cfg.get("base_url") or _DEFAULT_URL,
             model=cfg.get("model"),
             timeout=int(cfg.get("timeout", 20)),
@@ -121,7 +121,9 @@ class NimClient:
             log.info("NIM: discovered %d models via /v1/models", len(ids))
         except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError,
                 ValueError, OSError) as exc:
-            log.warning("NIM model discovery failed (%s); using curated registry", exc)
+            from ..utils.secrets import redact
+            log.warning("NIM model discovery failed (%s); using curated registry",
+                        redact(exc))
 
     def _headers(self) -> dict[str, str]:
         return {

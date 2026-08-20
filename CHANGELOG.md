@@ -8,6 +8,20 @@ project uses [Semantic Versioning](https://semver.org/).
 > **This tool is for authorized WiFi security testing only.** It performs
 > capture only — it never hashes or cracks passwords.
 
+## [1.6.3] — 2026-08
+
+### Reliability (non-offensive engineering)
+- **`--json` stdout contract** — machine output is stdlib JSON only, with
+  `schema_version` + `handshaker_version`; loop/progress text stays off stdout.
+- **Secret redaction** — Bearer / `nvapi-` / `NIM_API_KEY` stripped from logs
+  and NIM exception paths. `Retry-After` accepts HTTP-dates as well as seconds.
+- **NIM_API_KEY env wins** over `nim.api_key` (documented precedence).
+- **ProcResult.state** — `TIMED_OUT` vs `EXITED_OK` / `EXITED_ERR`.
+- **Learning/WPS JSON** carry `schema_version` and keep a `.bak` on save.
+- **SQLite `schema_meta`** records schema version 2.
+- **Engine deepcopy** of config; adapter `reset()` is re-entrant.
+- Package classifiers state **Linux**; pytest `hardware` marker reserved.
+
 ## [1.6.2] — 2026-08
 
 ### Packaging, config, verifier integrity

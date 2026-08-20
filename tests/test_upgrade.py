@@ -152,6 +152,34 @@ def test_count_22000_types_missing_file(tmp_path):
     assert PmidCapture.count_22000_types(str(tmp_path / "nope.22000")) == (0, 0)
 
 
+def test_pmkid_convert_writes_to_runtime_dir(tmp_path, monkeypatch):
+    """convert() must use constants.PMKID_DIR (not a NameError on PMKID_DIR)."""
+    from handshaker import constants
+    from handshaker.utils.proc import ProcResult
+
+    monkeypatch.setattr(constants, "PMKID_DIR", tmp_path / "pmkid")
+    src = tmp_path / "cap.pcapng"
+    src.write_bytes(b"\x00" * 16)
+
+    class _Hcx:
+        def convert(self, capture_file, out_file):
+            from pathlib import Path
+            Path(out_file).parent.mkdir(parents=True, exist_ok=True)
+            Path(out_file).write_text("WPA*01*deadbeef\n")
+            return ProcResult(args=["hcxpcapngtool"], returncode=0)
+
+    class _Reg:
+        def has(self, name):
+            return name == "hcxpcapngtool"
+
+        def hcxpcapngtool(self):
+            return _Hcx()
+
+    out = PmidCapture(_Reg(), {}).convert(str(src))
+    assert out == tmp_path / "pmkid" / "cap.22000"
+    assert out.read_text().startswith("WPA*01*")
+
+
 # --------------------------------------------------------------------------- #
 # scapy availability (always returns a bool; never raises)
 # --------------------------------------------------------------------------- #

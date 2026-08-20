@@ -425,12 +425,12 @@ def _cmd_selftest(engine: Engine, args) -> int:
 
 
 def _cmd_report(engine: Engine, args) -> int:
-    from .constants import LEARNING_DIR
+    from . import constants
     from .core.report import build_report
     from .tui import UI
 
     ui = UI()
-    rep = build_report(engine.store, engine.db, wps_path=LEARNING_DIR / "wps.json")
+    rep = build_report(engine.store, engine.db, wps_path=constants.LEARNING_DIR / "wps.json")
 
     if args.json:
         ui.json(rep.to_dict())

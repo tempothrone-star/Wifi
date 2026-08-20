@@ -201,7 +201,6 @@ def test_finish_session_records_status(tmp_path):
 # --------------------------------------------------------------------------- #
 def test_quarantine_retains_file(monkeypatch, tmp_path):
     from handshaker.config import load_config
-    from handshaker.core import engine as eng
     from handshaker.core.engine import Engine
 
     from handshaker import constants

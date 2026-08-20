@@ -29,6 +29,9 @@ project uses [Semantic Versioning](https://semver.org/).
 - **NIM** `prefer_pmkid` / `dwell_seconds` are applied; prompts mark ESSID as
   opaque data; cache key includes the model list.
 - **6 GHz / unknown channels** are no longer labelled `5GHz`.
+- **PMKID convert** writes under `constants.PMKID_DIR` at call time (was a
+  `NameError` on the unbound name `PMKID_DIR`, so `pmkid --convert` and the
+  engine conversion path never produced a 22000 file).
 
 ### Bug fixes (third-pass review)
 - **Graceful tool shutdown** — subprocess timeout now sends SIGINT (then

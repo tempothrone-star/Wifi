@@ -55,7 +55,8 @@ class PmidCapture:
             # fall back to hcxlabtool/hcxpsktool if present
             return None
         src = Path(capture_file)
-        dst = PMKID_DIR / (src.stem + ".22000")
+        constants.PMKID_DIR.mkdir(parents=True, exist_ok=True)
+        dst = constants.PMKID_DIR / (src.stem + ".22000")
         self.registry.hcxpcapngtool().convert(str(src), str(dst))
         if dst.exists() and dst.stat().st_size > 0:
             return dst

@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wifi-auto-handshaker-pmkid"
+version = "1.6.3"
+description = "Autonomous WiFi 4-way handshake & PMKID capturer for Kali/Linux (Python 3.11+; capture only, no cracking)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Wifi Auto Handshaker PMKID contributors" }]
+keywords = [
+    "wifi",
+    "security",
+    "pentesting",
+    "handshake",
+    "pmkid",
+    "eapol",
+    "aircrack-ng",
+    "hcxdumptool",
+    "audit",
+]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Security",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+]
+dependencies = [
+    "PyYAML>=6.0",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+# scapy enables raw 802.11 frame injection for deauth (arbitrary reason codes).
+full = ["scapy>=2.5.0"]
+# Development / test dependencies.
+dev = ["pytest>=7.0", "pyflakes>=2.5"]
+
+[project.scripts]
+handshaker = "handshaker.cli:main"
+handshaker-menu = "handshaker.launcher:main"
+
+[tool.setuptools]
+# Packaging is fully declared here. Do not add a setuptools setup.py —
+# bootstrap.py is the environment doctor, not a setup script.
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["handshaker*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

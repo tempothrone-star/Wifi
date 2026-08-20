@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Captured data (never commit handshakes / PMKIDs / captures)
+data/captures/*
+data/handshakes/*
+data/pmkid/*
+data/quarantine/*
+data/learning/*.json
+data/learning/*.json.bak
+data/learning/*.tmp
+data/learning/*.bak
+data/learning/*.db
+data/learning/*.db-wal
+data/learning/*.db-shm
+
+# ...but keep the directory placeholders
+!data/captures/.gitkeep
+!data/handshakes/.gitkeep
+!data/pmkid/.gitkeep
+!data/quarantine/.gitkeep
+!data/learning/.gitkeep
+
+# Hashcat conversion artifacts
+*.22000
+*.pcapng
+*.pcap
+*.cap
+*.csv
+
+# Export bundles
+handshaker-export-*/
+
+# Secrets
+.env
+NIM_API_KEY
+
+# Editor
+.idea/
+.vscode/
+*.swp

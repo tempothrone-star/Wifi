@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from .. import constants
-from ..constants import TOOL_HCXDUMPTOOL, TOOL_HCXPCAPNGTOOL
+from ..constants import TOOL_HCXDUMPTOOL, TOOL_HCXLABTOOL, TOOL_HCXPCAPNGTOOL
 from ..exceptions import CaptureError
 from ..tools.registry import ToolRegistry
 
@@ -37,7 +37,7 @@ class PmidCapture:
         """Capture PMKIDs (hcxdumptool attack mode 1) for one BSSID."""
         if not self.registry.has(TOOL_HCXDUMPTOOL):
             raise CaptureError("hcxdumptool is required for PMKID capture but is not installed.")
-        stamp = int(time.time())
+        stamp = int(time.time() * 1000)
         out = constants.PMKID_DIR / f"pmkid_{bssid.replace(':', '')}_{stamp}.pcapng"
         # AP-only attack (--disable_client_attacks) -> PMKID + clientless EAPOL.
         self.registry.hcxdumptool().capture(
@@ -51,13 +51,20 @@ class PmidCapture:
 
     def convert(self, capture_file: str) -> Path | None:
         """Convert a raw capture to hashcat 22000 format, keeping PMKID lines."""
-        if not self.registry.has(TOOL_HCXPCAPNGTOOL):
-            # fall back to hcxlabtool/hcxpsktool if present
+        converter = None
+        if self.registry.has(TOOL_HCXPCAPNGTOOL):
+            converter = self.registry.hcxpcapngtool()
+        elif self.registry.has(TOOL_HCXLABTOOL):
+            converter = self.registry.hcxlabtool()
+        if converter is None:
             return None
         src = Path(capture_file)
         constants.PMKID_DIR.mkdir(parents=True, exist_ok=True)
         dst = constants.PMKID_DIR / (src.stem + ".22000")
-        self.registry.hcxpcapngtool().convert(str(src), str(dst))
+        res = converter.convert(str(src), str(dst))
+        if not res.ok:
+            log.info("PMKID conversion failed for %s (rc=%s)", src.name, res.returncode)
+            return None
         if dst.exists() and dst.stat().st_size > 0:
             return dst
         log.info("Conversion produced no hashcat lines for %s", src.name)

@@ -24,8 +24,14 @@ class AircrackNg(Tool):
         return run([self.path, capture_file], timeout=60, check=False)
 
     @staticmethod
-    def parse_handshakes(result: ProcResult) -> set[str]:
-        """Extract the set of BSSIDs for which aircrack detected a handshake."""
+    def parse_handshakes(result: ProcResult) -> set[str] | None:
+        """Extract BSSIDs aircrack reported a handshake for.
+
+        Returns:
+          * a set (possibly empty) when aircrack actually produced analysis
+          * ``None`` when the process failed without parseable output — the
+            caller must treat that as "tool unavailable", not "no handshake".
+        """
         found: set[str] = set()
         for line in result.output.splitlines():
             m = _HANDSHAKE_RE.search(line)
@@ -33,4 +39,11 @@ class AircrackNg(Tool):
                 mac = parse_mac(m.group(1))
                 if mac:
                     found.add(mac)
-        return found
+        if found:
+            return found
+        if result.ok:
+            return found
+        text = result.output.lower()
+        if "handshake" in text or "packets" in text or "bssid" in text:
+            return found
+        return None

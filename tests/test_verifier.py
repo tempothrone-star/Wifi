@@ -49,10 +49,16 @@ def test_m4_all_zero_nonce_is_not_m2():
     assert _classify_message(_frame(ack=False, install=False, mic=True, nonce=colon_zero)) == 4
 
 
-def test_classify_trusts_wireshark_msgnr():
-    # msgnr wins even if the nonce field would suggest otherwise.
+def test_classify_msgnr_used_when_flags_ambiguous():
+    # ACK+MIC without Install is not a canonical M1-M4; msgnr fills the gap.
+    f = _frame(ack=True, install=False, mic=True, nonce="b" * 64, msgnr=3)
+    assert _classify_message(f) == 3
+
+
+def test_classify_flags_win_when_msgnr_contradicts():
+    # MIC + SNonce is M2; a contradictory msgnr=4 must not override the flags.
     f = _frame(ack=False, install=False, mic=True, nonce="b" * 64, msgnr=4)
-    assert _classify_message(f) == 4
+    assert _classify_message(f) == 2
 
 
 def test_unclassified_ambiguous_frame():

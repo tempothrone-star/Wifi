@@ -1,4 +1,5 @@
-# Runtime dependencies for Wifi Auto Handshaker PMKID (Python 3.12+).
+# Runtime dependencies for Wifi Auto Handshaker PMKID (Python 3.11+).
+# Authoritative list is pyproject.toml [project.dependencies]; keep this in sync.
 # The Kali tools themselves (aircrack-ng, hcxdumptool, tshark, mdk4, bettercap)
 # are installed at the system level and detected at runtime — they are NOT pip
 # packages.

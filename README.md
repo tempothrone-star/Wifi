@@ -37,7 +37,7 @@ and refuses to operate without it.
 
 ## Requirements
 
-* **Python 3.12+** (the tool is written for 3.12; it also runs on 3.11).
+* **Python 3.11+** (declared in `pyproject.toml`; classifiers include 3.11 and 3.12).
 * **Kali Linux** (or another Linux with the wireless toolchain installed).
 * Root privileges (`sudo`).
 * A wireless adapter that supports **monitor mode** and **packet injection**.
@@ -95,12 +95,13 @@ python3 -m venv .venv
 
 ## Setup & environment self-check
 
-`setup.py` is a self-contained (stdlib-only) script that prepares and *verifies*
-the runtime — it runs even before Python dependencies are installed:
+`bootstrap.py` is a self-contained (stdlib-only) script that prepares and *verifies*
+the runtime — it runs even before Python dependencies are installed. It is
+**not** a setuptools setup script (`pyproject.toml` is the packaging source):
 
 * **OS check** — Kali/Debian detection, package manager, root privileges.
 * **Python check** — version (3.11+), virtualenv status.
-* **venv creation** — `setup.py --venv` builds `.venv` and installs the deps.
+* **venv creation** — `bootstrap.py --venv` builds `.venv` and installs the deps.
 * **Tool check** — detects all 24 Kali tools, maps them to apt packages, and
   prints an exact `apt install` line (or installs them with `--install-tools`).
 * **API key check** — validates `NIM_API_KEY` / `nim.api_key`:
@@ -124,10 +125,10 @@ output for scripting.
 
 ```bash
 # 0) Setup + environment self-check (OS / python / venv / tools / API key)
-python3 setup.py
-python3 setup.py --json            # machine-readable
-python3 setup.py --venv            # create .venv and install Python deps
-sudo python3 setup.py --install-tools   # apt-install missing Kali tools
+python3 bootstrap.py
+python3 bootstrap.py --json            # machine-readable
+python3 bootstrap.py --venv            # create .venv and install Python deps
+sudo python3 bootstrap.py --install-tools   # apt-install missing Kali tools
 
 # The easiest way in: the interactive launcher (TUI menu over every command)
 sudo .venv/bin/python -m handshaker menu

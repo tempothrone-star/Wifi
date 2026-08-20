@@ -211,7 +211,14 @@ class HandshakeVerifier:
             return VerificationReport(file=capture_file, passed=False,
                                       reason="file missing or empty")
 
-        evidence = self._gather_evidence(capture_file)
+        evidence, tshark_failed = self._gather_evidence(capture_file)
+        if tshark_failed and not evidence:
+            tools_used, tools_missing = self._tool_status()
+            return VerificationReport(
+                file=capture_file, passed=False,
+                reason="tshark failed; EAPOL evidence unavailable",
+                tools_used=tools_used, tools_missing=tools_missing,
+            )
         report = self._decide(capture_file, evidence)
         log.info("verify %s -> %s (%s)", Path(capture_file).name,
                  "PASS" if report.passed else "REJECT", report.reason)
@@ -220,16 +227,21 @@ class HandshakeVerifier:
     # ------------------------------------------------------------------ #
     # Evidence gathering
     # ------------------------------------------------------------------ #
-    def _gather_evidence(self, capture_file: str) -> list[HandshakeEvidence]:
+    def _gather_evidence(self, capture_file: str) -> tuple[list[HandshakeEvidence], bool]:
         by_bssid: dict[str, HandshakeEvidence] = {}
+        tshark_failed = False
 
         # 1) tshark EAPOL ground truth.
         if self._uses("tshark"):
-            for f in self._parse_tshark(capture_file):
-                ev = by_bssid.setdefault(f.bssid, HandshakeEvidence(bssid=f.bssid))
-                ev.frames.append(f)
-                if f.message:
-                    ev.messages.add(f.message)
+            parsed = self._parse_tshark(capture_file)
+            if parsed is None:
+                tshark_failed = True
+            else:
+                for f in parsed:
+                    ev = by_bssid.setdefault(f.bssid, HandshakeEvidence(bssid=f.bssid))
+                    ev.frames.append(f)
+                    if f.message:
+                        ev.messages.add(f.message)
 
         # 2) aircrack-ng independent check.
         aircrack_bssids: set[str] | None = None
@@ -262,7 +274,7 @@ class HandshakeVerifier:
                 ev.pyrit_confirmed = (b in pyrit_bssids) if pyrit_bssids is not None else None
                 ev.cowpatty_confirmed = cowpatty_map.get(b) if cowpatty_map else None
 
-        return list(by_bssid.values())
+        return list(by_bssid.values()), tshark_failed
 
     # ------------------------------------------------------------------ #
     # Decision
@@ -319,6 +331,11 @@ class HandshakeVerifier:
                     "full M1-M4 required")
         if not require_full and not ev.has_crackable_pair:
             return f"no crackable M2+M3 pair (messages={sorted(ev.messages)})"
+        if require_full and not _has_correlated_exchange(ev, need_full=True):
+            return ("no correlated M1-M4 exchange "
+                    "(messages appear to belong to different handshakes)")
+        if not require_full and not _has_correlated_exchange(ev, need_full=False):
+            return "no correlated M2+M3 pair for the same AP/STA exchange"
 
         # Per-BSSID minimum EAPOL frames (not a global file total).
         if len(ev.frames) < min_packets:
@@ -348,8 +365,11 @@ class HandshakeVerifier:
     # ------------------------------------------------------------------ #
     # tshark parsing
     # ------------------------------------------------------------------ #
-    def _parse_tshark(self, capture_file: str) -> list[EapolFrame]:
+    def _parse_tshark(self, capture_file: str) -> list[EapolFrame] | None:
         res = self.registry.tshark().eapol_frames(capture_file)
+        if not res.ok:
+            log.warning("tshark failed (rc=%s); ignoring partial stdout", res.returncode)
+            return None
         frames: list[EapolFrame] = []
         seen: set[tuple] = set()  # de-duplicate identical retransmissions
         for line in res.stdout.splitlines():
@@ -372,11 +392,17 @@ class HandshakeVerifier:
             nonce = parts[8].strip()
             msgnr = _parse_int_field(parts[9])
             replay_counter = _parse_counter(parts[10])
+            # Optional 12th field: wlan_rsna_eapol.keydes.key_info.key_mic.
+            # That boolean is the Key MIC *flag*, distinct from the MIC bytes.
+            if len(parts) >= 12 and parts[11].strip() in ("0", "1"):
+                has_mic = parts[11].strip() == "1"
+            else:
+                has_mic = bool(mic)
 
             frame = EapolFrame(
                 frame_number=frame_number, bssid=bssid, src=src, dst=dst,
                 key_info=key_info, has_ack=has_ack, has_install=has_install,
-                has_mic=bool(mic), mic=mic, nonce=nonce, msgnr=msgnr,
+                has_mic=has_mic, mic=mic, nonce=nonce, msgnr=msgnr,
                 replay_counter=replay_counter,
             )
             frame.message = _classify_message(frame)
@@ -457,7 +483,13 @@ class HandshakeVerifier:
         if not essid_map:
             log.info("cowpatty skipped: no ESSID extracted from capture")
             return out
+        from collections import Counter
+        essid_counts = Counter(essid_map.values())
         for bssid, essid in essid_map.items():
+            if essid_counts[essid] > 1:
+                log.info("cowpatty skipped for %s: ESSID %r is shared by multiple BSSIDs",
+                         bssid, essid)
+                continue
             res = self.registry.cowpatty().check_handshake(capture_file, essid)
             confirmed = parse_cowpatty(res)
             if confirmed is not None:
@@ -499,6 +531,63 @@ def _parse_counter(value: str) -> int | None:
     return None
 
 
+def _hex_compact(value: str) -> str:
+    return (value or "").replace(":", "").replace(" ", "").replace("-", "")
+
+
+def _is_hex(value: str) -> bool:
+    return bool(value) and all(c in "0123456789abcdefABCDEF" for c in value)
+
+
+def _has_correlated_exchange(ev: HandshakeEvidence, *, need_full: bool) -> bool:
+    """True when M1–M4 (or M2+M3) belong to the *same* AP/STA exchange."""
+    by_msg: dict[int, list[EapolFrame]] = {1: [], 2: [], 3: [], 4: []}
+    for f in ev.frames:
+        if f.message in by_msg:
+            by_msg[f.message].append(f)
+    ap = _ap_mac(ev)
+    m1_list = by_msg[1] or [None]
+    for m1 in m1_list:
+        anonce = m1.nonce if m1 and _nonce_is_present(m1.nonce) else None
+        if m1 is None:
+            m3_candidates = list(by_msg[3])
+        else:
+            m3_candidates = [m3 for m3 in by_msg[3]
+                             if anonce and m3.nonce == anonce]
+            if ap and parse_mac(m1.src) != ap:
+                continue
+        for m3 in m3_candidates:
+            sta = parse_mac(m1.dst) if m1 is not None else parse_mac(m3.dst)
+            if m3 is not None:
+                if ap and parse_mac(m3.src) != ap:
+                    continue
+                if sta and parse_mac(m3.dst) not in (None, sta):
+                    continue
+                if sta is None:
+                    sta = parse_mac(m3.dst)
+            m2s = [
+                f for f in by_msg[2]
+                if _nonce_is_present(f.nonce)
+                and (not sta or parse_mac(f.src) == sta)
+                and (not ap or parse_mac(f.dst) == ap)
+            ]
+            if not m2s:
+                continue
+            if not need_full:
+                return True
+            m4s = [
+                f for f in by_msg[4]
+                if (not sta or parse_mac(f.src) == sta)
+                and (not ap or parse_mac(f.dst) == ap)
+            ]
+            for m2 in m2s:
+                for m4 in m4s:
+                    if _nonce_is_present(m4.nonce) and m4.nonce != m2.nonce:
+                        continue
+                    return True
+    return False
+
+
 def _nonce_is_present(nonce: str) -> bool:
     """True when the nonce field carries a real (non-zero) 802.11 nonce.
 
@@ -514,19 +603,14 @@ def _nonce_is_present(nonce: str) -> bool:
     return True
 
 
-def _classify_message(f: EapolFrame) -> int:
-    """Classify an EAPOL-Key frame as M1..M4, or 0 if ambiguous.
-
-    Prefer Wireshark's own ``msgnr`` (1-4) when present — that is the
-    dissection we already paid tshark to do. Fall back to flag lookup:
+def _classify_from_flags(f: EapolFrame) -> int:
+    """Classify from Key ACK / Install / MIC flag + nonce presence.
 
         M1: Key ACK set, no MIC            (ANonce)
         M3: Key ACK + Install + MIC        (GTK)
         M2: MIC, no ACK/Install, *non-zero* nonce     (SNonce)
         M4: MIC, no ACK/Install, absent *or all-zero* nonce
     """
-    if f.msgnr in (1, 2, 3, 4):
-        return int(f.msgnr)
     if f.has_ack and not f.has_mic:
         return 1
     if f.has_mic and f.has_ack and f.has_install:
@@ -534,6 +618,21 @@ def _classify_message(f: EapolFrame) -> int:
     if f.has_mic and not f.has_ack and not f.has_install:
         return 2 if _nonce_is_present(f.nonce) else 4
     return 0
+
+
+def _classify_message(f: EapolFrame) -> int:
+    """Classify an EAPOL-Key frame as M1..M4, or 0 if ambiguous.
+
+    Wireshark ``msgnr`` is one piece of evidence, not an override: when it
+    contradicts the Key ACK / Install / MIC flags, the flags win. ``msgnr``
+    is used when the flags are ambiguous.
+    """
+    flags = _classify_from_flags(f)
+    if f.msgnr in (1, 2, 3, 4):
+        if flags in (0, int(f.msgnr)):
+            return int(f.msgnr)
+        return flags
+    return flags
 
 
 def _structural_problem(ev: HandshakeEvidence) -> str | None:
@@ -556,12 +655,21 @@ def _structural_problem(ev: HandshakeEvidence) -> str | None:
     ap_mac = _ap_mac(ev)
     sta_mac = _sta_mac(ev)
 
-    # Direction checks.
+    # Direction checks: source AND destination (AP↔STA pair).
     if ap_mac:
         for msg in (1, 3):
             for f in by_msg[msg]:
                 if parse_mac(f.src) != ap_mac:
                     return f"message {msg} did not originate from the AP (src={f.src})"
+                dst = parse_mac(f.dst)
+                if dst == ap_mac:
+                    return f"message {msg} destination is the AP (expected STA) (dst={f.dst})"
+        for msg in (2, 4):
+            for f in by_msg[msg]:
+                if parse_mac(f.dst) != ap_mac:
+                    return f"message {msg} destination is not the AP (dst={f.dst})"
+                if parse_mac(f.src) == ap_mac:
+                    return f"message {msg} originated from the AP (expected STA) (src={f.src})"
     if sta_mac:
         for msg in (2, 4):
             for f in by_msg[msg]:
@@ -574,15 +682,19 @@ def _structural_problem(ev: HandshakeEvidence) -> str | None:
     if not any(_nonce_is_present(f.nonce) for f in by_msg[2]):
         return "message 2 is missing its SNonce"
 
-    # Nonce / MIC structural checks (length validation on the dissected hex).
+    # Nonce / MIC structural checks (hex + length on the dissected payload).
     for msg in (1, 2, 3):
         for f in by_msg[msg]:
-            if f.nonce and len(f.nonce) != NONCE_HEX_LEN:
-                return f"message {msg} has a malformed nonce length ({len(f.nonce)})"
+            if f.nonce:
+                compact = _hex_compact(f.nonce)
+                if len(compact) != NONCE_HEX_LEN or not _is_hex(compact):
+                    return f"message {msg} has a malformed nonce ({len(compact)} hex chars)"
     for msg in (2, 3, 4):
         for f in by_msg[msg]:
-            if f.mic and len(f.mic) != MIC_HEX_LEN:
-                return f"message {msg} has a malformed MIC length ({len(f.mic)})"
+            if f.mic:
+                compact = _hex_compact(f.mic)
+                if len(compact) != MIC_HEX_LEN or not _is_hex(compact):
+                    return f"message {msg} has a malformed MIC ({len(compact)} hex chars)"
 
     # Replay-counter monotonicity is checked *per handshake*, not across every
     # EAPOL frame from a MAC in a long capture (a later re-auth legitimately
@@ -603,9 +715,11 @@ def _structural_problem(ev: HandshakeEvidence) -> str | None:
         for m2, m4 in zip(m2s, m4s):
             if (m2.replay_counter is not None and m4.replay_counter is not None
                     and m4.replay_counter < m2.replay_counter):
-                return (f"replay counter decreased for {sta_mac}: "
-                        f"{m4.replay_counter} < {m2.replay_counter}")
+                    return (f"replay counter decreased for {sta_mac}: "
+                            f"{m4.replay_counter} < {m2.replay_counter}")
 
+    if {1, 2, 3, 4}.issubset(ev.messages) and not _has_correlated_exchange(ev, need_full=True):
+        return "no correlated M1-M4 exchange (ANonce/STA mismatch across messages)"
     return None
 
 

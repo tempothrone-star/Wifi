@@ -15,6 +15,7 @@ boolean flags rather than re-decoding the key_info bitfield:
 * ``wlan_rsna_eapol.keydes.msgnr``            — Wireshark's message number (1-4)
 * ``eapol.keydes.replay_counter``             — EAPOL replay counter (legacy
   ``eapol`` namespace; there is NO ``wlan_rsna_eapol`` alias for this field)
+* ``...key_info.key_mic``                     — Key MIC *flag* (boolean; not the bytes)
 
 Nothing here is inferred by us: every classification is derived from fields
 Wireshark itself decoded.
@@ -39,6 +40,7 @@ _EAPOL_FIELDS = [
     "-e", "wlan_rsna_eapol.keydes.nonce",
     "-e", "wlan_rsna_eapol.keydes.msgnr",
     "-e", "eapol.keydes.replay_counter",
+    "-e", "wlan_rsna_eapol.keydes.key_info.key_mic",
 ]
 
 

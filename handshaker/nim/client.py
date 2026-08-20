@@ -105,6 +105,9 @@ class NimClient:
         if self._discovered or not self.cfg.discover_models:
             return
         self._discovered = True
+        if not self.bucket.acquire(timeout=self.cfg.timeout):
+            log.warning("NIM model discovery skipped (rate limiter)")
+            return
         try:
             req = urllib.request.Request(
                 self.cfg.base_url.rstrip("/") + "/models",

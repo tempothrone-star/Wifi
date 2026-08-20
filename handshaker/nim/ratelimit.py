@@ -61,6 +61,12 @@ class TokenBucket:
 
     def acquire(self, tokens: float = 1.0, timeout: float | None = None) -> bool:
         """Block until ``tokens`` are available. Returns False on timeout."""
+        if self.rate <= 0:
+            with self._lock:
+                if self.tokens >= tokens:
+                    self.tokens -= tokens
+                    return True
+            return False
         deadline = (time.monotonic() + timeout) if timeout is not None else None
         while True:
             with self._lock:

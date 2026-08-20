@@ -10,12 +10,16 @@ A single script that prepares the runtime and *verifies* it, checking:
   * NVIDIA NIM API key (format + live validation + expiration/revocation check)
 
 Usage:
-    python3 setup.py                 # full check + report (safe, no changes)
-    python3 setup.py doctor          # same as above
-    python3 setup.py --venv          # create .venv and install requirements
-    python3 setup.py --install-tools # attempt apt install of missing tools
-    python3 setup.py --check-api-key # live-validate NIM_API_KEY / nim.api_key
-    python3 setup.py --json          # machine-readable JSON report
+    python3 bootstrap.py                 # full check + report (safe, no changes)
+    python3 bootstrap.py doctor          # same as above
+    python3 bootstrap.py --venv          # create .venv and install requirements
+    python3 bootstrap.py --install-tools # attempt apt install of missing tools
+    python3 bootstrap.py --check-api-key # live-validate NIM_API_KEY / nim.api_key
+    python3 bootstrap.py --json          # machine-readable JSON report
+
+This file is deliberately *not* named setup.py: a setuptools PEP 517 build
+would otherwise invoke it as a setup script and fail. Packaging lives in
+pyproject.toml.
 
 Self-contained (stdlib only) so it runs even before dependencies are installed.
 """

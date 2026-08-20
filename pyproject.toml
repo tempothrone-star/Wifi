@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wifi-auto-handshaker-pmkid"
-version = "1.6.1"
+version = "1.6.2"
 description = "Autonomous WiFi 4-way handshake & PMKID capturer with strong verification and adaptive strategy (capture only, no cracking)."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,6 +25,7 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: Information Technology",
     "Topic :: Security",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
 ]
@@ -43,6 +44,14 @@ dev = ["pytest>=7.0", "pyflakes>=2.5"]
 handshaker = "handshaker.cli:main"
 handshaker-menu = "handshaker.launcher:main"
 
+[tool.setuptools]
+# Packaging is fully declared here. Do not add a setuptools setup.py —
+# bootstrap.py is the environment doctor, not a setup script.
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["handshaker*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

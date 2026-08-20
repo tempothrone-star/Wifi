@@ -291,8 +291,13 @@ def test_band_flag_5g_only():
 
 
 def test_band_flag_ignores_6ghz():
-    # 6GHz has no airodump band letter; must not emit "x".
-    assert _band_flag(["6GHz"]) == "abg"
+    # 6GHz has no airodump band letter; must not emit "x". Mixed with 2.4 GHz
+    # scans 2.4 GHz only. 6GHz-only is an error, not a silent 2.4/5 fallback.
+    from handshaker.exceptions import CaptureError
+    import pytest
+    with pytest.raises(CaptureError):
+        _band_flag(["6GHz"])
+    assert _band_flag(["2.4GHz", "6GHz"]) == "bg"
     assert "x" not in _band_flag(["2.4GHz", "6GHz"])
 
 

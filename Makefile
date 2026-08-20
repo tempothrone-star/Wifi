@@ -26,7 +26,7 @@ test: ## Run the full test suite
 	$(VENV_PY) -m pytest tests/ -q
 
 lint: ## Lint with pyflakes
-	$(VENV_PY) -m pyflakes handshaker/ tests/ setup.py
+	$(VENV_PY) -m pyflakes handshaker/ tests/ bootstrap.py
 
 compile: ## Byte-compile every source file
 	$(VENV_PY) -c "import py_compile,pathlib;[py_compile.compile(str(f),doraise=True) for f in pathlib.Path('handshaker').rglob('*.py')];print('compile OK')"

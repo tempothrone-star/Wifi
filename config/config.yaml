@@ -24,7 +24,7 @@ adapter:
 
 scan:
   dwell: 12                  # seconds to listen on each channel
-  bands: ["2.4GHz", "5GHz"]  # 6GHz optional if hardware supports it
+  bands: ["2.4GHz", "5GHz"]  # 6GHz-only is rejected (airodump has no 6GHz flag)
   min_signal: -90            # ignore APs weaker than this (dBm)
   adaptive: false            # two-pass scan (quick survey + focused dwell)
   quick_dwell: 5             # quick-pass seconds (adaptive mode)

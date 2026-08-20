@@ -34,6 +34,7 @@ class AdapterInfo:
 class AdapterManager:
     def __init__(self, registry: ToolRegistry) -> None:
         self.registry = registry
+        self._killed_services = False
 
     # ------------------------------------------------------------------ #
     # Detection
@@ -104,14 +105,24 @@ class AdapterManager:
         if self.registry.has(TOOL_AIRMON_NG):
             if stop_services:
                 self.registry.airmon().check_kill()
+                self._killed_services = True
             res = self.registry.airmon().start_monitor(interface)
             new_iface = _parse_monitor_interface(res.output)
             if new_iface:
                 return new_iface
+            # airmon-ng may have created a monitor iface we failed to parse.
+            # Do not blindly `iw set type` the original name in that case.
+            for cand in self.detect_interfaces():
+                if cand != interface and _looks_like_monitor(cand) and self.is_monitor(cand):
+                    return cand
+            if self.is_monitor(interface):
+                return interface
         # Fallback: raw iw set type monitor (no TX-power or other hidden changes).
         if self.registry.has(TOOL_IW):
             self.registry.iw().set_mode(interface, "monitor")
-            return interface
+            if self.is_monitor(interface):
+                return interface
+            raise AdapterError(f"iw set type monitor did not put {interface} into monitor mode")
         raise AdapterError(f"Could not enable monitor mode on {interface} (airmon-ng/iw unavailable).")
 
     def reset(self, interface: str) -> None:
@@ -120,9 +131,11 @@ class AdapterManager:
             self.registry.airmon().stop_monitor(interface)
         if self.registry.has(TOOL_IW):
             self.registry.iw().set_mode(interface, "managed")
-        # Bring NetworkManager back up if it was killed.
-        run(["service", "NetworkManager", "restart"], timeout=30, check=False)
-        run(["service", "wpa_supplicant", "restart"], timeout=30, check=False)
+        # Only restart services we actually stopped.
+        if self._killed_services:
+            run(["service", "NetworkManager", "restart"], timeout=30, check=False)
+            run(["service", "wpa_supplicant", "restart"], timeout=30, check=False)
+            self._killed_services = False
         log.info("Adapter %s reset to managed mode", interface)
 
     def check_injection(self, interface: str) -> bool:

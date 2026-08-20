@@ -152,8 +152,11 @@ def _merge(default: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
 
 def load_config(path: Path | str | None = None) -> dict[str, Any]:
     """Load config from ``path`` (or the default location) and validate it."""
+    explicit = path is not None
     if path:
         cfg_path = Path(path)
+        if not cfg_path.exists():
+            raise ConfigError(f"Config file not found: {cfg_path}")
     else:
         cwd_cfg = Path.cwd() / "config" / "config.yaml"
         cfg_path = cwd_cfg if cwd_cfg.exists() else DEFAULT_CONFIG
@@ -166,12 +169,39 @@ def load_config(path: Path | str | None = None) -> dict[str, Any]:
         if not isinstance(loaded, dict):
             raise ConfigError(f"Config {cfg_path} must be a YAML mapping.")
         raw = loaded
+    elif explicit:
+        raise ConfigError(f"Config file not found: {cfg_path}")
 
     unknown = set(raw) - _ALLOWED_TOP_KEYS
     if unknown:
         raise ConfigError(f"Unknown top-level config section(s): {sorted(unknown)}")
 
     cfg = _merge(_DEFAULTS, raw)
+
+    # Structural type checks first — range checks assume mappings/lists/ints.
+    for section in _ALLOWED_TOP_KEYS:
+        if not isinstance(cfg.get(section), dict):
+            raise ConfigError(
+                f"{section} must be a mapping, got {type(cfg.get(section)).__name__}"
+            )
+
+    ov = cfg["tools"].get("overrides", {})
+    if ov is None:
+        cfg["tools"]["overrides"] = {}
+    elif not isinstance(ov, dict):
+        raise ConfigError("tools.overrides must be a mapping of tool-name -> path")
+
+    targets_pre = cfg["targets"]
+    for key in ("bssid", "essid", "channel", "exclude"):
+        val = targets_pre.get(key, [])
+        if val is None:
+            targets_pre[key] = []
+        elif not isinstance(val, list):
+            raise ConfigError(f"targets.{key} must be a list, got {type(val).__name__}")
+
+    bands_val = cfg["scan"].get("bands", [])
+    if not isinstance(bands_val, list):
+        raise ConfigError("scan.bands must be a list")
 
     # --- Range / sanity validation (fail fast, no silent clamping) --- #
     verify = cfg["verify"]
@@ -214,12 +244,13 @@ def load_config(path: Path | str | None = None) -> dict[str, Any]:
     _nonneg_num("nim", "rate_per_minute")
     _pos_int("wps", "timeout")
     _pos_int("wps", "force_timeout")
+    _pos_int("deauth", "burst_size")
     if int(cfg["targets"].get("max_targets", 0) or 0) < 0:
         raise ConfigError("targets.max_targets must be >= 0")
 
     deauth = cfg["deauth"]
-    if deauth["burst_size"] < 1 or deauth["max_bursts"] < 0:
-        raise ConfigError("deauth.burst_size must be >= 1 and max_bursts >= 0.")
+    if not isinstance(deauth["max_bursts"], int) or isinstance(deauth["max_bursts"], bool) or deauth["max_bursts"] < 0:
+        raise ConfigError("deauth.max_bursts must be an integer >= 0.")
 
     # Reason codes must be ints in the valid 802.11 range.
     for rc in deauth.get("reason_codes", []):
@@ -231,6 +262,13 @@ def load_config(path: Path | str | None = None) -> dict[str, Any]:
     for band in cfg["scan"].get("bands", []):
         if band not in allowed_bands:
             raise ConfigError(f"scan.bands contains unknown band {band!r} (allowed: {sorted(allowed_bands)})")
+    # airodump-ng has no 6 GHz band flag. 6GHz-only would silently become 2.4/5.
+    supported_bands = [b for b in cfg["scan"].get("bands", []) if b in {"2.4GHz", "5GHz"}]
+    if "6GHz" in cfg["scan"].get("bands", []) and not supported_bands:
+        raise ConfigError(
+            "scan.bands: 6GHz-only scanning is not supported by airodump-ng; "
+            "include 2.4GHz and/or 5GHz"
+        )
 
     # Learning strategy enum.
     allowed_strategies = {"thompson", "ucb", "epsilon"}

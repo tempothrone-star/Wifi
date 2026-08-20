@@ -345,7 +345,10 @@ def _band_flag(bands: list[str]) -> str:
     if "5GHz" in bands:
         flags.add("a")
     if not flags:
-        return "abg"
+        raise CaptureError(
+            "no airodump-ng-supported band requested (need 2.4GHz and/or 5GHz; "
+            "6GHz has no airodump --band letter)"
+        )
     return "".join(sorted(flags))
 
 

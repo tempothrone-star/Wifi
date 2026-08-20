@@ -76,6 +76,7 @@ class ResultsDB:
         conn = sqlite3.connect(self.path)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA busy_timeout=5000")
         return conn
 
     def _init(self) -> None:
@@ -110,6 +111,10 @@ class ResultsDB:
 
     def finish_session(self, session_id: int, status: str) -> None:
         """Mark a session completed (status: 'ok' | 'interrupted' | 'error')."""
+        if status not in {"ok", "interrupted", "error"}:
+            raise ValueError(
+                f"finish_session status must be ok|interrupted|error, got {status!r}"
+            )
         with self._connect() as conn:
             conn.execute(
                 "UPDATE sessions SET ended_at = ?, status = ? WHERE id = ?",

@@ -8,6 +8,30 @@ project uses [Semantic Versioning](https://semver.org/).
 > **This tool is for authorized WiFi security testing only.** It performs
 > capture only — it never hashes or cracks passwords.
 
+## [1.6.2] — 2026-08
+
+### Packaging, config, verifier integrity
+- **PEP 517 packaging** — `setup.py` was a doctor CLI, so `pip install .` /
+  wheel builds crashed. The doctor is now `bootstrap.py`; packaging is
+  declared only in `pyproject.toml`. pytest sets `pythonpath = ["."]`.
+- **Missing `-c` path is a ConfigError** (no silent default config).
+- **Structural config types** — null sections, string `targets.bssid`,
+  list `tools.overrides`, string `burst_size` are ConfigError.
+- **6 GHz-only `scan.bands`** is rejected instead of silently scanning 2.4/5.
+- **Verifier correlates M1–M4** into one AP/STA exchange (same ANonce);
+  Frankenstein mixes of two handshakes are rejected.
+- **Direction checks include destination** (AP→STA and STA→AP).
+- **`msgnr` no longer overrides key flags** when they contradict.
+- **tshark failures** are not treated as “no EAPOL frames”.
+- **aircrack process failure** is “unavailable”, not “no handshake”.
+- **PMKID filenames use milliseconds**; convert requires a successful
+  converter exit and can fall back to hcxlabtool.
+- **Adapter reset** only restarts NetworkManager if this process stopped it;
+  airmon parse-failure no longer blindly `iw`s the original iface.
+- **WPS PIN parser** requires a `[+]` / found/recovered marker.
+- SQLite `busy_timeout`, deep-copied learning profiles, bounded event lists,
+  unique JSON temp files, transactional export rename.
+
 ## [1.6.1] — 2026-08
 
 ### ChatGPT review follow-up

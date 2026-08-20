@@ -48,7 +48,7 @@ from ..constants import (
     TOOL_REAVER,
     TOOL_WASH,
 )
-from ..exceptions import CaptureError
+from ..exceptions import CaptureError, LearningStateError
 from ..tools.registry import ToolRegistry
 from ..utils.proc import ProcResult
 from ..utils.validation import parse_channel, parse_mac, parse_signal_dbm
@@ -86,9 +86,16 @@ _METHOD_FLAGS = {
     "push_button": "push_button",
 }
 
-# reaver/bully/pixiewps success markers.
-_PIN_RE = re.compile(r"WPS\s*PIN\s*[:=]?\s*'?(\d{4,8})'?", re.IGNORECASE)
-_PIN_ALT_RE = re.compile(r"WPS\s*pin\s*[:=]?\s*(\d{4,8})", re.IGNORECASE)
+# reaver/bully/pixiewps success markers. Require a recovered/found/[+] context
+# so "Suggested WPS PIN: 12345670" is not treated as a recovered PIN.
+_PIN_RE = re.compile(
+    r"\[\+\]\s*WPS\s*PIN\s*[:=]\s*'?(\d{4,8})'?",
+    re.IGNORECASE,
+)
+_PIN_FOUND_RE = re.compile(
+    r"WPS\s*PIN\s+(?:found|recovered|cracked)\s*[:=]?\s*'?(\d{4,8})'?",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -192,14 +199,15 @@ class WpsHistory:
             d = json.loads(self.path.read_text())
             if isinstance(d, dict) and isinstance(d.get("records"), list):
                 self._data = d
-        except (json.JSONDecodeError, OSError):
-            log.warning("corrupt WPS history at %s; starting fresh", self.path)
+        except (json.JSONDecodeError, OSError) as exc:
+            raise LearningStateError(f"Corrupt WPS history {self.path}: {exc}") from exc
 
     def save(self) -> None:
         if not self.path:
             return
+        import os
         with self._lock:
-            tmp = self.path.with_suffix(".tmp")
+            tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.{time.time_ns()}.tmp")
             tmp.write_text(json.dumps(self._data, indent=2))
             tmp.replace(self.path)
 
@@ -222,9 +230,11 @@ class WpsHistory:
     def method_stats(self, key: str, now: float | None = None) -> dict[str, dict[str, float]]:
         """Recomputed, time-decayed ``{trials, wins, rate}`` per method for ``key``."""
         now = now if now is not None else time.time()
+        with self._lock:
+            records = list(self._data["records"])
         wins: dict[str, float] = {}
         trials: dict[str, float] = {}
-        for r in self._data["records"]:
+        for r in records:
             if r.get("key") != key:
                 continue
             method = r.get("method")
@@ -478,7 +488,14 @@ class WpsAssessor:
 
         if method == "default_pin":
             ran = False
-            for vendor in (1, 2):
+            vendor_name = (ap.vendor or "").strip().lower()
+            if vendor_name in {"belkin"}:
+                vendors = (1,)
+            elif vendor_name in {"d-link", "dlink", "d link"}:
+                vendors = (2,)
+            else:
+                vendors = (1, 2)
+            for vendor in vendors:
                 res = self._run(self.default_pin, interface, ap, "default_pin", vendor)
                 if res is None:
                     continue
@@ -570,13 +587,11 @@ def _parse_wash_line(line: str) -> WpsAp | None:
 
 
 def parse_wps_pin(result: ProcResult) -> str | None:
-    """Extract a recovered WPS PIN from reaver/bully/pixiewps output.
+    """Extract a *recovered* WPS PIN from reaver/bully/pixiewps output.
 
-    Recognizes ``[+] WPS PIN: '12345670'`` and ``WPS pin: 9178`` forms.
-    Returns None (honest "not recovered") when absent.
+    Accepts ``[+] WPS PIN: '12345670'`` and ``WPS PIN found: 9178``.
+    Candidate/suggested lines without a ``[+]`` success marker are ignored.
     """
     text = result.output
-    m = _PIN_RE.search(text) or _PIN_ALT_RE.search(text)
-    if m:
-        return m.group(1)
-    return None
+    m = _PIN_RE.search(text) or _PIN_FOUND_RE.search(text)
+    return m.group(1) if m else None

@@ -36,6 +36,7 @@ class ProjectReport:
     verified_captures: int = 0
     learned_aps: list[dict] = field(default_factory=list)
     wps_records: int = 0
+    db_error: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -46,6 +47,7 @@ class ProjectReport:
             "verified_captures": self.verified_captures,
             "learned_aps": self.learned_aps,
             "wps_records": self.wps_records,
+            "db_error": self.db_error,
         }
 
 
@@ -72,8 +74,8 @@ def build_report(store: LearningStore, db: ResultsDB,
         rep.sessions = db.count("sessions")
         rep.captures_recorded = db.count("captures")
         rep.verified_captures = db.count("captures", "passed = 1")
-    except Exception:  # noqa: BLE001 - DB may not exist yet
-        pass
+    except Exception as exc:  # noqa: BLE001 - DB may be missing or corrupt
+        rep.db_error = str(exc)
 
     # Learned AP profiles (deauth actions) with recomputed stats.
     for bssid in store.all_bssids():
@@ -116,33 +118,40 @@ def bundle_results(store: LearningStore, db: ResultsDB,
     Returns the created directory path. This completes the capture → learn →
     report → export loop, so results can be archived or moved off-box.
     """
-    stamp = time.strftime("%Y%m%d-%H%M%S")
+    import os
+    stamp = time.strftime("%Y%m%d-%H%M%S") + f"-{os.getpid()}-{time.time_ns() % 1_000_000}"
     out = Path(out_dir) if out_dir else Path(".")
     bundle = out / f"handshaker-export-{stamp}"
-    (bundle / "handshakes").mkdir(parents=True, exist_ok=True)
-    (bundle / "pmkid").mkdir(parents=True, exist_ok=True)
+    partial = out / f".partial-handshaker-export-{stamp}"
+    (partial / "handshakes").mkdir(parents=True, exist_ok=True)
+    (partial / "pmkid").mkdir(parents=True, exist_ok=True)
 
-    # Copy verified handshakes.
-    if constants.HANDSHAKES_DIR.exists():
-        for p in constants.HANDSHAKES_DIR.iterdir():
-            if p.is_file() and not p.name.startswith("."):
-                shutil.copy2(p, bundle / "handshakes" / p.name)
+    try:
+        # Copy verified handshakes.
+        if constants.HANDSHAKES_DIR.exists():
+            for p in constants.HANDSHAKES_DIR.iterdir():
+                if p.is_file() and not p.name.startswith("."):
+                    shutil.copy2(p, partial / "handshakes" / p.name)
 
-    # Copy PMKID conversions.
-    if constants.PMKID_DIR.exists():
-        for p in constants.PMKID_DIR.iterdir():
-            if p.is_file() and not p.name.startswith("."):
-                shutil.copy2(p, bundle / "pmkid" / p.name)
+        # Copy PMKID conversions.
+        if constants.PMKID_DIR.exists():
+            for p in constants.PMKID_DIR.iterdir():
+                if p.is_file() and not p.name.startswith("."):
+                    shutil.copy2(p, partial / "pmkid" / p.name)
 
-    # Full report.
-    rep = build_report(store, db, wps_path=wps_path)
-    (bundle / "report.json").write_text(json.dumps(rep.to_dict(), indent=2))
+        # Full report.
+        rep = build_report(store, db, wps_path=wps_path)
+        (partial / "report.json").write_text(json.dumps(rep.to_dict(), indent=2))
 
-    # Learning state (handshake bandit) and WPS history.
-    state = constants.LEARNING_DIR / "state.json"
-    if state.exists():
-        shutil.copy2(state, bundle / "state.json")
-    if wps_path and wps_path.exists():
-        shutil.copy2(wps_path, bundle / "wps.json")
+        # Learning state (handshake bandit) and WPS history.
+        state = constants.LEARNING_DIR / "state.json"
+        if state.exists():
+            shutil.copy2(state, partial / "state.json")
+        if wps_path and wps_path.exists():
+            shutil.copy2(wps_path, partial / "wps.json")
 
+        partial.rename(bundle)
+    except Exception:
+        shutil.rmtree(partial, ignore_errors=True)
+        raise
     return bundle

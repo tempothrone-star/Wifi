@@ -7,7 +7,9 @@ no derived "score" stored — scores are recomputed on demand by the policy laye
 
 from __future__ import annotations
 
+import copy
 import json
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -16,6 +18,8 @@ from typing import Any
 
 from ..constants import LEARNING_DIR
 from ..exceptions import LearningStateError
+
+_MAX_EVENTS = 500
 
 _STATE_FILE = LEARNING_DIR / "state.json"
 
@@ -68,7 +72,7 @@ class LearningStore:
         if not self.enabled or not self.path:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
+        tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.{time.time_ns()}.tmp")
         with self._lock:
             tmp.write_text(json.dumps(self._data, indent=2))
             tmp.replace(self.path)
@@ -120,6 +124,8 @@ class LearningStore:
                 "reward": r,
                 "ts": time.time(),
             })
+            if len(ap["actions"]) > _MAX_EVENTS:
+                ap["actions"] = ap["actions"][-_MAX_EVENTS:]
 
     def record_pmkid(self, bssid: str, success: bool) -> None:
         """Record a measured PMKID outcome (separate track from handshakes).
@@ -134,10 +140,13 @@ class LearningStore:
         with self._lock:
             self.ensure_ap(bssid)
             ap = self._data["aps"][bssid]
-            ap.setdefault("pmkid", []).append({
+            lst = ap.setdefault("pmkid", [])
+            lst.append({
                 "success": bool(success),
                 "ts": time.time(),
             })
+            if len(lst) > _MAX_EVENTS:
+                del lst[:-_MAX_EVENTS]
 
     def record_latency(self, bssid: str, seconds: float) -> None:
         """Record a measured reconnection latency (deauth -> first EAPOL M1).
@@ -152,7 +161,10 @@ class LearningStore:
         with self._lock:
             self.ensure_ap(bssid)
             ap = self._data["aps"][bssid]
-            ap.setdefault("latencies", []).append({"value": s, "ts": time.time()})
+            lst = ap.setdefault("latencies", [])
+            lst.append({"value": s, "ts": time.time()})
+            if len(lst) > _MAX_EVENTS:
+                del lst[:-_MAX_EVENTS]
 
     def latency_seconds(self, bssid: str, *, now: float | None = None) -> float | None:
         """Decayed mean reconnection latency for an AP, or None if unmeasured."""
@@ -206,7 +218,7 @@ class LearningStore:
     def profile(self, bssid: str) -> dict[str, Any] | None:
         with self._lock:
             ap = self._data["aps"].get(bssid)
-            return dict(ap) if ap else None
+            return copy.deepcopy(ap) if ap else None
 
     def actions_for(self, bssid: str) -> list[dict[str, Any]]:
         ap = self.profile(bssid)

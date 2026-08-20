@@ -581,6 +581,7 @@ class Engine:
             # Verify and enforce.
             if not files:
                 stats.failures.append(f"no capture output for {ap.bssid} (round {round_i})")
+                self.store.record_capture_engine(ap.bssid, session.engine, False)
                 continue
             for f in files:
                 report, _deleted = self.enforce_verification(str(f))

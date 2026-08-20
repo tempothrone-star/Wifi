@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import __version__
+from .. import constants
 from ..constants import (
     EXIT_AUTH_DENIED,
     EXIT_CAPTURE_FAILED,
@@ -28,9 +29,6 @@ from ..constants import (
     EXIT_NO_ADAPTER,
     EXIT_OK,
     EXIT_VERIFY_FAILED,
-    HANDSHAKES_DIR,
-    LEARNING_DIR,
-    QUARANTINE_DIR,
 )
 from ..db import ResultsDB
 from ..exceptions import (
@@ -98,10 +96,10 @@ class Engine:
         self.pmkid = PmidCapture(self.registry, config)
         self.wps = WpsAssessor(
             self.registry, config,
-            history=WpsHistory(path=LEARNING_DIR / "wps.json"),
+            history=WpsHistory(path=constants.LEARNING_DIR / "wps.json"),
         )
         self.store = LearningStore(
-            path=LEARNING_DIR / "state.json",
+            path=constants.LEARNING_DIR / "state.json",
             decay=float(config["learning"]["decay"]),
             enabled=bool(config["learning"].get("enabled", True)),
         )
@@ -111,8 +109,9 @@ class Engine:
         self._active_mon_iface: str | None = None
         self._active_session = None  # CaptureSession currently running, if any
         self._injection_ok = True  # default; set honestly during run_auto
+        self._dwell_override: float | None = None
 
-        for d in (HANDSHAKES_DIR, QUARANTINE_DIR):
+        for d in (constants.HANDSHAKES_DIR, constants.QUARANTINE_DIR):
             d.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------ #
@@ -189,7 +188,7 @@ class Engine:
             return report, False
         if self.config["verify"]["delete_on_fail"]:
             if self.config["verify"]["quarantine_before_delete"]:
-                dst = QUARANTINE_DIR / Path(capture_file).name
+                dst = constants.QUARANTINE_DIR / Path(capture_file).name
                 shutil.move(capture_file, dst)
                 log.info("quarantined non-handshake capture -> %s (retained)", dst)
             else:
@@ -388,6 +387,15 @@ class Engine:
             action = ActionKey("none", 1, 7)
             log.info("  action: none (no deauth engine available; passive/PMKID only)")
 
+        # NIM prefer_pmkid is an untrusted hint: honour True only, never force
+        # handshake-only when the strategist chose PMKID from measured facts.
+        if nim_hint and nim_hint.prefer_pmkid is True:
+            strategy.prefer_pmkid = True
+        if nim_hint and nim_hint.dwell_seconds:
+            self._dwell_override = float(nim_hint.dwell_seconds)
+        else:
+            self._dwell_override = None
+
         # --- PMKID-first path (clientless targets). ---------------------- #
         if strategy.prefer_pmkid and self.config["pmkid"]["enabled"]:
             # Record PMKID outcome on the SEPARATE pmkid track (a PMKID capture
@@ -450,6 +458,9 @@ class Engine:
         slow client re-authenticates, nor over-wait for a fast one. Bounded to
         [default, 15s] so a single bad reading can't stall the campaign.
         """
+        override = getattr(self, "_dwell_override", None)
+        if override is not None:
+            return max(default, min(60.0, float(override)))
         learned = self.store.latency_seconds(ap.bssid)
         if learned is None:
             return default
@@ -557,7 +568,7 @@ class Engine:
                     self._active_session = session2
                     self.deauther.campaign(
                         mon_iface, ap.bssid, action, client=client, channel=ap.channel,
-                        max_bursts=int(self.config["deauth"]["max_bursts"]) // 2,
+                        max_bursts=max(1, int(self.config["deauth"]["max_bursts"]) // 2),
                     )
                     time.sleep(self._adaptive_wait(ap))
                     session2.stop()
@@ -579,7 +590,7 @@ class Engine:
                 if report.passed:
                     stats.handshakes_captured += 1
                     stats.verified_files.append(str(f))
-                    shutil.move(str(f), HANDSHAKES_DIR / f.name)
+                    shutil.move(str(f), constants.HANDSHAKES_DIR / f.name)
                     success = True
                 else:
                     stats.handshakes_rejected += 1
@@ -639,7 +650,7 @@ class Engine:
             if report.passed:
                 stats.handshakes_captured += 1
                 stats.verified_files.append(str(f))
-                shutil.move(str(f), HANDSHAKES_DIR / f.name)
+                shutil.move(str(f), constants.HANDSHAKES_DIR / f.name)
                 success = True
             else:
                 stats.handshakes_rejected += 1
@@ -654,6 +665,8 @@ class Engine:
         try:
             analysis = self.analyzer.analyze(str(files[0]), bssid)
         except Exception:  # noqa: BLE001
+            return current
+        if not analysis.ok:
             return current
         best = analysis.best_client()
         if best and best.mac != current:
@@ -726,7 +739,7 @@ class Engine:
             self._active_mon_iface = None
 
 
-def exit_code_for(stats: RunStats, exception: Exception | None) -> int:
+def exit_code_for(stats: RunStats | None, exception: Exception | None) -> int:
     if exception is not None:
         if isinstance(exception, NotRootError):
             return EXIT_NOT_ROOT
@@ -734,6 +747,8 @@ def exit_code_for(stats: RunStats, exception: Exception | None) -> int:
             return EXIT_AUTH_DENIED
         if isinstance(exception, NoAdapterError):
             return EXIT_NO_ADAPTER
+        return EXIT_CAPTURE_FAILED
+    if stats is None:
         return EXIT_CAPTURE_FAILED
     if stats.handshakes_captured > 0 or stats.pmkids_captured > 0:
         return EXIT_OK

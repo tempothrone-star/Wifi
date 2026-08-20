@@ -13,7 +13,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..constants import CAPTURES_DIR, TOOL_AIRODUMP_NG, TOOL_HCXDUMPTOOL
+from .. import constants
+from ..constants import TOOL_AIRODUMP_NG, TOOL_HCXDUMPTOOL
 from ..exceptions import CaptureError
 from ..tools.registry import ToolRegistry
 from ..utils.validation import sanitize_filename
@@ -64,7 +65,7 @@ class Capturer:
     def __init__(self, registry: ToolRegistry, config: dict) -> None:
         self.registry = registry
         self.config = config
-        CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
+        constants.CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
 
     def start(
         self,
@@ -88,7 +89,7 @@ class Capturer:
         stamp = int(time.time() * 1000)
         safe_essid = sanitize_filename(essid, fallback="target")
         safe_bssid = "".join(c for c in bssid if c.isalnum()) or "target"
-        prefix = f"{CAPTURES_DIR}/{safe_bssid}_{safe_essid}_{stamp}"
+        prefix = f"{constants.CAPTURES_DIR}/{safe_bssid}_{safe_essid}_{stamp}"
 
         if engine == "hcxdumptool" and self.registry.has(TOOL_HCXDUMPTOOL):
             return self._start_hcx(interface, bssid, channel, prefix, full_attack=full_attack)

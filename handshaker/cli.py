@@ -198,6 +198,14 @@ def main(argv: list[str] | None = None) -> int:
     return EXIT_OK
 
 
+def _requested_iface(engine: Engine, args) -> str | None:
+    """CLI ``-i`` wins; otherwise honour ``general.interface`` from config."""
+    cli = getattr(args, "interface", None)
+    if cli:
+        return cli
+    return engine.config["general"].get("interface")
+
+
 def _with_monitor(engine: Engine, requested: str | None, fn):
     """Enable monitor mode, run ``fn(mon_iface)``, optionally restore after.
 
@@ -223,7 +231,7 @@ def _with_monitor(engine: Engine, requested: str | None, fn):
 
 def _cmd_adapter(engine: Engine, args) -> int:
     engine.check_root()
-    iface = engine.adapter.select_interface(args.interface)
+    iface = engine.adapter.select_interface(_requested_iface(engine, args))
     print(f"Interface: {iface}")
     print(f"Monitor mode: {engine.adapter.is_monitor(iface)}")
     mon = iface
@@ -238,7 +246,7 @@ def _cmd_adapter(engine: Engine, args) -> int:
 def _cmd_scan(engine: Engine, args) -> int:
     from .tui import UI, render_scan
 
-    result = _with_monitor(engine, args.interface,
+    result = _with_monitor(engine, _requested_iface(engine, args),
                            lambda mon: engine.scan(mon, args.duration))
     ui = UI()
     if args.json:
@@ -259,7 +267,7 @@ def _cmd_scan(engine: Engine, args) -> int:
 def _cmd_capture(engine: Engine, args) -> int:
     from .tui import UI, render_run_summary
 
-    iface = engine.adapter.select_interface(args.interface)
+    iface = engine.adapter.select_interface(_requested_iface(engine, args))
     ui = UI()
     stats = None
     exc = None
@@ -305,7 +313,7 @@ def _cmd_pmkid(engine: Engine, args) -> int:
         print("error: --bssid and --channel are required for PMKID capture.", file=sys.stderr)
         return EXIT_CAPTURE_FAILED
     out = _with_monitor(
-        engine, args.interface,
+        engine, _requested_iface(engine, args),
         lambda mon: engine.pmkid.capture(mon, args.bssid, args.channel),
     )
     print(f"PMKID capture -> {out}" if out else "No PMKID captured.")
@@ -449,13 +457,13 @@ def _cmd_report(engine: Engine, args) -> int:
 
 
 def _cmd_export(engine: Engine, args) -> int:
-    from .constants import LEARNING_DIR
+    from . import constants
     from .core.report import bundle_results
     from .tui import UI
 
     ui = UI()
     bundle = bundle_results(engine.store, engine.db,
-                            out_dir=args.out, wps_path=LEARNING_DIR / "wps.json")
+                            out_dir=args.out, wps_path=constants.LEARNING_DIR / "wps.json")
     ui.status("Exported bundle", True, str(bundle))
     return EXIT_OK
 
@@ -490,7 +498,7 @@ def _cmd_wps(engine: Engine, args) -> int:
             return aps, []
         return aps, [assessor.assess_one(mon, ap) for ap in aps]
 
-    aps, verdicts = _with_monitor(engine, args.interface, _run)
+    aps, verdicts = _with_monitor(engine, _requested_iface(engine, args), _run)
     if not aps:
         if args.json:
             ui.json({"verdicts": [], "aps": []})

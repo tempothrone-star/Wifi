@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..constants import HANDSHAKES_DIR, LEARNING_DIR, PMKID_DIR
+from .. import constants
 from ..db import ResultsDB
 from ..learning.state import LearningStore
 
@@ -55,15 +55,15 @@ def build_report(store: LearningStore, db: ResultsDB,
     rep = ProjectReport()
 
     # Verified handshakes on disk.
-    if HANDSHAKES_DIR.exists():
+    if constants.HANDSHAKES_DIR.exists():
         rep.handshakes = sorted(
-            p.name for p in HANDSHAKES_DIR.iterdir() if p.is_file() and not p.name.startswith(".")
+            p.name for p in constants.HANDSHAKES_DIR.iterdir() if p.is_file() and not p.name.startswith(".")
         )
 
     # PMKID conversions on disk.
-    if PMKID_DIR.exists():
+    if constants.PMKID_DIR.exists():
         rep.pmkids = sorted(
-            p.name for p in PMKID_DIR.iterdir()
+            p.name for p in constants.PMKID_DIR.iterdir()
             if p.is_file() and p.suffix in (".22000", ".pcapng") and not p.name.startswith(".")
         )
 
@@ -123,14 +123,14 @@ def bundle_results(store: LearningStore, db: ResultsDB,
     (bundle / "pmkid").mkdir(parents=True, exist_ok=True)
 
     # Copy verified handshakes.
-    if HANDSHAKES_DIR.exists():
-        for p in HANDSHAKES_DIR.iterdir():
+    if constants.HANDSHAKES_DIR.exists():
+        for p in constants.HANDSHAKES_DIR.iterdir():
             if p.is_file() and not p.name.startswith("."):
                 shutil.copy2(p, bundle / "handshakes" / p.name)
 
     # Copy PMKID conversions.
-    if PMKID_DIR.exists():
-        for p in PMKID_DIR.iterdir():
+    if constants.PMKID_DIR.exists():
+        for p in constants.PMKID_DIR.iterdir():
             if p.is_file() and not p.name.startswith("."):
                 shutil.copy2(p, bundle / "pmkid" / p.name)
 
@@ -139,7 +139,7 @@ def bundle_results(store: LearningStore, db: ResultsDB,
     (bundle / "report.json").write_text(json.dumps(rep.to_dict(), indent=2))
 
     # Learning state (handshake bandit) and WPS history.
-    state = LEARNING_DIR / "state.json"
+    state = constants.LEARNING_DIR / "state.json"
     if state.exists():
         shutil.copy2(state, bundle / "state.json")
     if wps_path and wps_path.exists():

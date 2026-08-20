@@ -20,7 +20,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-from .constants import LEARNING_DIR
+from . import constants
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -68,7 +68,7 @@ CREATE INDEX IF NOT EXISTS idx_captures_bssid ON captures(bssid);
 
 class ResultsDB:
     def __init__(self, path: Path | str | None = None) -> None:
-        self.path = Path(path) if path else (LEARNING_DIR / "results.db")
+        self.path = Path(path) if path else (constants.LEARNING_DIR / "results.db")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._init()
 

@@ -50,6 +50,9 @@ class CaptureAnalysis:
     probe_req_count: int = 0
     data_count: int = 0
     clients: list[ClientActivity] = field(default_factory=list)
+    # Distinguishes "tshark failed" from "tshark ran and saw 0 frames".
+    ok: bool = True
+    skip_reason: str = ""
 
     @property
     def clients_active(self) -> bool:
@@ -79,15 +82,22 @@ class Analyzer:
         a = CaptureAnalysis(bssid=bssid)
         if not self.registry.has("tshark"):
             log.warning("tshark unavailable; analysis skipped.")
+            a.ok = False
+            a.skip_reason = "tshark unavailable"
             return a
 
         tshark = self.registry.tshark()
-        a.eapol_count = tshark.frame_count(capture_file, "wlan_rsna_eapol")
+        eapol = tshark.frame_count(capture_file, "wlan_rsna_eapol")
+        if eapol is None:
+            a.ok = False
+            a.skip_reason = "tshark failed"
+            return a
+        a.eapol_count = eapol
         a.beacon_count = tshark.frame_count(
             capture_file, f"wlan.fc.type_subtype == 0x08 && wlan.bssid == {bssid}"
-        )
-        a.probe_req_count = tshark.frame_count(capture_file, "wlan.fc.type_subtype == 0x04")
-        a.data_count = tshark.frame_count(capture_file, "wlan.fc.type == 2")
+        ) or 0
+        a.probe_req_count = tshark.frame_count(capture_file, "wlan.fc.type_subtype == 0x04") or 0
+        a.data_count = tshark.frame_count(capture_file, "wlan.fc.type == 2") or 0
 
         a.clients = self._client_activity(capture_file, bssid)
         return a

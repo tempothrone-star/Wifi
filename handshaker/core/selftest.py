@@ -107,64 +107,69 @@ class SelfTester:
         iface = self.engine.adapter.select_interface(self.config["general"].get("interface"))
         rep.add("interface selected", True, iface)
 
-        # 4) monitor mode
+        mon_iface = None
         try:
-            mon_iface = self.engine.adapter.enable_monitor(iface)
-            rep.add("monitor mode", True, mon_iface)
-        except HandshakerError as exc:
-            rep.add("monitor mode", False, str(exc))
-            return rep
-
-        # 5) injection
-        inj = self.engine.adapter.check_injection(mon_iface)
-        rep.add("packet injection", inj,
-                "aireplay-ng --test confirmed injection" if inj else "injection not confirmed")
-
-        # 6) live scan
-        try:
-            scan = self.engine.scanner.scan(mon_iface, scan_duration)
-            n = len(scan.aps)
-            rep.add("live scan", n > 0, f"{n} access point(s) seen")
-        except HandshakerError as exc:
-            rep.add("live scan", False, str(exc))
-            return rep
-
-        # 7) optional capture + verify (needs a target; pick the strongest AP)
-        if do_capture and scan.aps:
-            ap = max(scan.aps.values(), key=lambda a: a.power)
-            rep.add("capture target", True, f"{ap.essid or ap.bssid} (ch {ap.channel})")
+            # 4) monitor mode
             try:
-                session = self.engine.capturer.start(mon_iface, ap.bssid, ap.channel,
-                                                     essid=ap.essid)
-                import time
-                time.sleep(5)
-                session.stop()
-                files = self.engine.capturer.output_files(session)
-                if files:
-                    rpt = self.engine.verify(str(files[0]))
-                    rep.add("handshake verify", rpt.passed, rpt.reason)
+                mon_iface = self.engine.adapter.enable_monitor(iface)
+                rep.add("monitor mode", True, mon_iface)
+            except HandshakerError as exc:
+                rep.add("monitor mode", False, str(exc))
+                return rep
+
+            # 5) injection
+            inj = self.engine.adapter.check_injection(mon_iface)
+            rep.add("packet injection", inj,
+                    "aireplay-ng --test confirmed injection" if inj else "injection not confirmed")
+
+            # 6) live scan
+            try:
+                scan = self.engine.scanner.scan(mon_iface, scan_duration)
+                n = len(scan.aps)
+                rep.add("live scan", n > 0, f"{n} access point(s) seen")
+            except HandshakerError as exc:
+                rep.add("live scan", False, str(exc))
+                return rep
+
+            # 7) optional capture + verify (needs a target; pick the strongest AP)
+            if do_capture and scan.aps:
+                ap = max(scan.aps.values(), key=lambda a: a.power)
+                rep.add("capture target", True, f"{ap.essid or ap.bssid} (ch {ap.channel})")
+                try:
+                    session = self.engine.capturer.start(mon_iface, ap.bssid, ap.channel,
+                                                         essid=ap.essid)
+                    import time
+                    time.sleep(5)
+                    session.stop()
+                    files = self.engine.capturer.output_files(session)
+                    if files:
+                        rpt = self.engine.verify(str(files[0]))
+                        rep.add("handshake verify", rpt.passed, rpt.reason)
+                    else:
+                        rep.add("handshake verify", False, "no capture output produced")
+                except HandshakerError as exc:
+                    rep.add("handshake verify", False, str(exc))
+            elif do_capture:
+                rep.add("capture target", False, "no APs found to capture", skipped=True)
+
+            # 8) optional WPS detection
+            if do_wps:
+                try:
+                    aps = self.engine.wps.detect(mon_iface)
+                    rep.add("WPS detection", True, f"{len(aps)} WPS-enabled AP(s)")
+                except HandshakerError as exc:
+                    rep.add("WPS detection", False, str(exc))
+        finally:
+            # Always restore the adapter if we enabled monitor mode, even on
+            # unexpected exceptions (HandshakerError early-returns still hit this).
+            if mon_iface and self.config["adapter"]["reset_on_exit"]:
+                try:
+                    self.engine.adapter.reset(mon_iface)
+                except HandshakerError as exc:
+                    rep.add("adapter reset", False, str(exc))
                 else:
-                    rep.add("handshake verify", False, "no capture output produced")
-            except HandshakerError as exc:
-                rep.add("handshake verify", False, str(exc))
-        elif do_capture:
-            rep.add("capture target", False, "no APs found to capture", skipped=True)
-
-        # 8) optional WPS detection
-        if do_wps:
-            try:
-                aps = self.engine.wps.detect(mon_iface)
-                rep.add("WPS detection", True, f"{len(aps)} WPS-enabled AP(s)")
-            except HandshakerError as exc:
-                rep.add("WPS detection", False, str(exc))
-
-        # cleanup
-        if self.config["adapter"]["reset_on_exit"]:
-            try:
-                self.engine.adapter.reset(mon_iface)
-            except HandshakerError as exc:
-                rep.add("adapter reset", False, str(exc))
-            else:
-                rep.add("adapter reset", True, "restored managed mode")
+                    # Don't duplicate the row if we already recorded a reset.
+                    if not any(s.name == "adapter reset" for s in rep.steps):
+                        rep.add("adapter reset", True, "restored managed mode")
 
         return rep

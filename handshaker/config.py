@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from .constants import DEFAULT_CONFIG
+from .constants import DEFAULT_CONFIG, rebind_data_dirs
 from .exceptions import ConfigError
 
 # Allowed top-level keys. Adding a feature requires adding its key here —
@@ -152,7 +152,11 @@ def _merge(default: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
 
 def load_config(path: Path | str | None = None) -> dict[str, Any]:
     """Load config from ``path`` (or the default location) and validate it."""
-    cfg_path = Path(path) if path else DEFAULT_CONFIG
+    if path:
+        cfg_path = Path(path)
+    else:
+        cwd_cfg = Path.cwd() / "config" / "config.yaml"
+        cfg_path = cwd_cfg if cwd_cfg.exists() else DEFAULT_CONFIG
     raw: dict[str, Any] = {}
     if cfg_path.exists():
         try:
@@ -183,6 +187,35 @@ def load_config(path: Path | str | None = None) -> dict[str, Any]:
         raise ConfigError("learning.decay must be in [0, 1].")
     if not (0.0 <= float(learn.get("transfer", 0.5)) <= 1.0):
         raise ConfigError("learning.transfer must be in [0, 1].")
+
+    def _pos_int(section: str, key: str, minimum: int = 1) -> None:
+        val = cfg[section][key]
+        if not isinstance(val, int) or isinstance(val, bool) or val < minimum:
+            raise ConfigError(f"{section}.{key} must be an integer >= {minimum}, got {val!r}")
+
+    def _nonneg_num(section: str, key: str) -> None:
+        val = cfg[section][key]
+        try:
+            n = float(val)
+        except (TypeError, ValueError) as exc:
+            raise ConfigError(f"{section}.{key} must be a number, got {val!r}") from exc
+        if n < 0:
+            raise ConfigError(f"{section}.{key} must be >= 0, got {val!r}")
+
+    _pos_int("scan", "dwell")
+    _pos_int("scan", "quick_dwell")
+    _pos_int("capture", "max_rounds")
+    _pos_int("capture", "pmkid_duration")
+    _pos_int("capture", "write_interval")
+    _nonneg_num("deauth", "cooldown")
+    _pos_int("learning", "min_observations")
+    _pos_int("nim", "timeout")
+    _pos_int("nim", "burst")
+    _nonneg_num("nim", "rate_per_minute")
+    _pos_int("wps", "timeout")
+    _pos_int("wps", "force_timeout")
+    if int(cfg["targets"].get("max_targets", 0) or 0) < 0:
+        raise ConfigError("targets.max_targets must be >= 0")
 
     deauth = cfg["deauth"]
     if deauth["burst_size"] < 1 or deauth["max_bursts"] < 0:
@@ -220,4 +253,10 @@ def load_config(path: Path | str | None = None) -> dict[str, Any]:
         if parse_mac(mac) is None:
             raise ConfigError(f"targets contains invalid MAC address {mac!r}")
 
+    nim_url = str(nim.get("base_url") or "")
+    if cfg["nim"].get("enabled") and nim_url and not nim_url.lower().startswith("https://"):
+        raise ConfigError("nim.base_url must use https:// when NIM is enabled")
+
+    # Honour output_root / installed-package data location.
+    rebind_data_dirs(cfg["general"].get("output_root"))
     return cfg

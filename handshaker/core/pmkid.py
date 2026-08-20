@@ -12,7 +12,8 @@ import re
 import time
 from pathlib import Path
 
-from ..constants import PMKID_DIR, TOOL_HCXDUMPTOOL, TOOL_HCXPCAPNGTOOL
+from .. import constants
+from ..constants import TOOL_HCXDUMPTOOL, TOOL_HCXPCAPNGTOOL
 from ..exceptions import CaptureError
 from ..tools.registry import ToolRegistry
 
@@ -30,14 +31,14 @@ class PmidCapture:
     def __init__(self, registry: ToolRegistry, config: dict) -> None:
         self.registry = registry
         self.config = config
-        PMKID_DIR.mkdir(parents=True, exist_ok=True)
+        constants.PMKID_DIR.mkdir(parents=True, exist_ok=True)
 
     def capture(self, interface: str, bssid: str, channel: int, duration: int = 60) -> Path | None:
         """Capture PMKIDs (hcxdumptool attack mode 1) for one BSSID."""
         if not self.registry.has(TOOL_HCXDUMPTOOL):
             raise CaptureError("hcxdumptool is required for PMKID capture but is not installed.")
         stamp = int(time.time())
-        out = PMKID_DIR / f"pmkid_{bssid.replace(':', '')}_{stamp}.pcapng"
+        out = constants.PMKID_DIR / f"pmkid_{bssid.replace(':', '')}_{stamp}.pcapng"
         # AP-only attack (--disable_client_attacks) -> PMKID + clientless EAPOL.
         self.registry.hcxdumptool().capture(
             interface, str(out), channel=str(channel), bssid=bssid,

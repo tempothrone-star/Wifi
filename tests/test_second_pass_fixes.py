@@ -204,8 +204,10 @@ def test_quarantine_retains_file(monkeypatch, tmp_path):
     from handshaker.core import engine as eng
     from handshaker.core.engine import Engine
 
-    monkeypatch.setattr(eng, "QUARANTINE_DIR", tmp_path / "q")
+    from handshaker import constants
     e = Engine(load_config())
+    monkeypatch.setattr(constants, "QUARANTINE_DIR", tmp_path / "q")
+    (tmp_path / "q").mkdir(parents=True, exist_ok=True)
 
     cap = tmp_path / "bad.pcapng"
     cap.write_bytes(b"\x00" * 64)

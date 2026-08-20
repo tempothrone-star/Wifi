@@ -10,6 +10,26 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ## [1.6.1] — 2026-08
 
+### ChatGPT review follow-up
+- **M4 classification** — an all-zero 32-byte nonce (the real EAPOL-Key M4
+  on the wire) is no longer classified as M2. Wireshark `msgnr` is preferred
+  when present.
+- **`general.output_root` is wired** — data dirs rebind at config load;
+  installed packages write under cwd, not site-packages.
+- **`general.interface`** is honoured when CLI `-i` is omitted.
+- **Refined deauth** uses `max(1, max_bursts // 2)` so `max_bursts: 1` still
+  fires one burst.
+- **Self-test adapter cleanup** is in a `finally` after monitor mode.
+- **Replay-counter check is per handshake** (shared ANonce / paired M2-M4),
+  so a later re-auth that resets the counter no longer rejects the capture.
+- **Dedup** includes MIC + replay counter.
+- **Config validation** covers dwell, rounds, timeouts, NIM rate, WPS
+  timeouts, and requires `https://` for an enabled NIM endpoint.
+- **Analyzer** distinguishes tshark failure from a true zero-frame capture.
+- **NIM** `prefer_pmkid` / `dwell_seconds` are applied; prompts mark ESSID as
+  opaque data; cache key includes the model list.
+- **6 GHz / unknown channels** are no longer labelled `5GHz`.
+
 ### Bug fixes (third-pass review)
 - **Graceful tool shutdown** — subprocess timeout now sends SIGINT (then
   SIGTERM, then SIGKILL) so airodump-ng / hcxdumptool / wash can flush

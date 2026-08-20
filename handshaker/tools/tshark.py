@@ -69,8 +69,13 @@ class Tshark(Tool):
         ]
         return run(args, timeout=120, check=False)
 
-    def frame_count(self, capture_file: str, display_filter: str) -> int:
-        """Count frames matching a display filter; returns 0 on any error."""
+    def frame_count(self, capture_file: str, display_filter: str) -> int | None:
+        """Count frames matching a display filter.
+
+        Returns ``None`` when tshark failed (so callers can distinguish a
+        tool error from a legitimate zero-frame capture). Returns 0 when the
+        command succeeded and matched nothing.
+        """
         args = [
             self.path,
             "-r", capture_file,
@@ -80,7 +85,7 @@ class Tshark(Tool):
         ]
         res = run(args, timeout=120, check=False)
         if not res.ok:
-            return 0
+            return None
         lines = [ln for ln in res.stdout.splitlines() if ln.strip()]
         return len(lines)
 

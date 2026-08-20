@@ -292,17 +292,18 @@ def test_engine_pmkid_path_records_separately(monkeypatch, tmp_path):
     """The PMKID-first path must record PMKID on the pmkid track and record the
     handshake outcome exactly once (previously it double-recorded and
     mis-attributed the PMKID result to the deauth action)."""
-    from handshaker.core import engine as engine_mod
+    from handshaker import constants
     from handshaker.core.engine import Engine, RunStats
     from handshaker.core.scanner import AccessPoint, ScanResult
     from handshaker.learning.state import ActionKey
 
-    # Redirect filesystem writes to tmp.
-    monkeypatch.setattr(engine_mod, "LEARNING_DIR", tmp_path)
-    monkeypatch.setattr(engine_mod, "HANDSHAKES_DIR", tmp_path / "hs")
-    monkeypatch.setattr(engine_mod, "QUARANTINE_DIR", tmp_path / "q")
-
     cfg = load_config()
+    # Patch *after* load_config (which rebinds data dirs) and *before* Engine.
+    monkeypatch.setattr(constants, "LEARNING_DIR", tmp_path)
+    monkeypatch.setattr(constants, "HANDSHAKES_DIR", tmp_path / "hs")
+    monkeypatch.setattr(constants, "QUARANTINE_DIR", tmp_path / "q")
+    (tmp_path / "hs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "q").mkdir(parents=True, exist_ok=True)
     e = Engine(cfg)
 
     ap = AccessPoint(bssid=BSSID, channel=6, privacy="WPA2", auth="PSK",

@@ -180,6 +180,7 @@ def test_nim_deauth_tool_not_in_chain_is_ignored(monkeypatch, tmp_path):
         action = ActionKey("mdk4", 10, 7)
         reason = "x"
     monkeypatch.setattr(e.strategist, "choose_action", lambda *a, **k: D())
+    monkeypatch.setattr(e.db, "record_target", lambda *a, **k: None)
 
     e._process_target("wlan0mon", ap, scan, candidates, nim_hint, _mk_stats(), 1)
 

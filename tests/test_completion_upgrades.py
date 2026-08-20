@@ -125,28 +125,29 @@ def test_prefer_engine_learns_better_engine(tmp_path):
 # Result export bundle
 # --------------------------------------------------------------------------- #
 def test_bundle_results(tmp_path):
-    from handshaker.constants import HANDSHAKES_DIR, PMKID_DIR, LEARNING_DIR
+    from handshaker import constants
     import handshaker.core.report as report_mod
     from handshaker.db import ResultsDB
     from handshaker.learning.state import LearningStore
 
-    # Point the report module at tmp dirs.
-    orig_hs, orig_pm, orig_ls = HANDSHAKES_DIR, PMKID_DIR, LEARNING_DIR
+    orig_hs, orig_pm, orig_ls = (
+        constants.HANDSHAKES_DIR, constants.PMKID_DIR, constants.LEARNING_DIR,
+    )
     import pathlib
-    report_mod.HANDSHAKES_DIR = pathlib.Path(tmp_path / "hs")
-    report_mod.PMKID_DIR = pathlib.Path(tmp_path / "pm")
-    report_mod.LEARNING_DIR = pathlib.Path(tmp_path / "learning")
-    report_mod.HANDSHAKES_DIR.mkdir(parents=True, exist_ok=True)
-    report_mod.PMKID_DIR.mkdir(parents=True, exist_ok=True)
-    report_mod.LEARNING_DIR.mkdir(parents=True, exist_ok=True)
-    (report_mod.HANDSHAKES_DIR / "net1.pcapng").write_bytes(b"\x00" * 8)
-    (report_mod.PMKID_DIR / "net1.22000").write_text("WPA*01*...\n")
+    constants.HANDSHAKES_DIR = pathlib.Path(tmp_path / "hs")
+    constants.PMKID_DIR = pathlib.Path(tmp_path / "pm")
+    constants.LEARNING_DIR = pathlib.Path(tmp_path / "learning")
+    constants.HANDSHAKES_DIR.mkdir(parents=True, exist_ok=True)
+    constants.PMKID_DIR.mkdir(parents=True, exist_ok=True)
+    constants.LEARNING_DIR.mkdir(parents=True, exist_ok=True)
+    (constants.HANDSHAKES_DIR / "net1.pcapng").write_bytes(b"\x00" * 8)
+    (constants.PMKID_DIR / "net1.22000").write_text("WPA*01*...\n")
     try:
-        store = LearningStore(path=report_mod.LEARNING_DIR / "state.json", decay=1.0)
-        db = ResultsDB(path=report_mod.LEARNING_DIR / "results.db")
+        store = LearningStore(path=constants.LEARNING_DIR / "state.json", decay=1.0)
+        db = ResultsDB(path=constants.LEARNING_DIR / "results.db")
         out = tmp_path / "out"
         bundle = report_mod.bundle_results(store, db, out_dir=out,
-                                           wps_path=report_mod.LEARNING_DIR / "wps.json")
+                                           wps_path=constants.LEARNING_DIR / "wps.json")
         assert bundle.exists()
         assert (bundle / "handshakes" / "net1.pcapng").exists()
         assert (bundle / "pmkid" / "net1.22000").exists()
@@ -155,6 +156,6 @@ def test_bundle_results(tmp_path):
         rep = json.loads((bundle / "report.json").read_text())
         assert "handshakes" in rep
     finally:
-        report_mod.HANDSHAKES_DIR = orig_hs
-        report_mod.PMKID_DIR = orig_pm
-        report_mod.LEARNING_DIR = orig_ls
+        constants.HANDSHAKES_DIR = orig_hs
+        constants.PMKID_DIR = orig_pm
+        constants.LEARNING_DIR = orig_ls

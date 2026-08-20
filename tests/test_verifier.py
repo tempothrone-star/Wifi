@@ -41,6 +41,20 @@ def test_m2_m4_distinguished_by_nonce():
     assert _classify_message(_frame(ack=False, install=False, mic=True, nonce="")) == 4
 
 
+def test_m4_all_zero_nonce_is_not_m2():
+    """Real EAPOL M4 carries a 32-byte all-zero nonce, which is truthy in Python."""
+    zero = "0" * 64
+    assert _classify_message(_frame(ack=False, install=False, mic=True, nonce=zero)) == 4
+    colon_zero = ":".join(["00"] * 32)
+    assert _classify_message(_frame(ack=False, install=False, mic=True, nonce=colon_zero)) == 4
+
+
+def test_classify_trusts_wireshark_msgnr():
+    # msgnr wins even if the nonce field would suggest otherwise.
+    f = _frame(ack=False, install=False, mic=True, nonce="b" * 64, msgnr=4)
+    assert _classify_message(f) == 4
+
+
 def test_unclassified_ambiguous_frame():
     # No ACK, no MIC -> not a handshake message.
     assert _classify_message(_frame(ack=False, install=False, mic=False, nonce="")) == 0

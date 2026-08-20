@@ -134,15 +134,16 @@ def test_pmf_fallback_config_default_enabled():
 
 def test_pmf_fallback_method_verifies_and_stores(monkeypatch, tmp_path):
     """The PMF fallback capture path verifies output and stores a handshake."""
-    from handshaker.core import engine as engine_mod
+    from handshaker import constants
     from handshaker.core.engine import Engine, RunStats
     from handshaker.core.scanner import AccessPoint
 
-    monkeypatch.setattr(engine_mod, "HANDSHAKES_DIR", tmp_path / "hs")
-    monkeypatch.setattr(engine_mod, "QUARANTINE_DIR", tmp_path / "q")
-
     from handshaker.config import load_config
     e = Engine(load_config())
+    monkeypatch.setattr(constants, "HANDSHAKES_DIR", tmp_path / "hs")
+    monkeypatch.setattr(constants, "QUARANTINE_DIR", tmp_path / "q")
+    (tmp_path / "hs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "q").mkdir(parents=True, exist_ok=True)
 
     ap = AccessPoint(bssid="aa:bb:cc:dd:ee:ff", channel=6, privacy="WPA2",
                      auth="PSK", power=-40, essid="Net")
@@ -166,9 +167,12 @@ def test_pmf_fallback_method_verifies_and_stores(monkeypatch, tmp_path):
     # Force the verifier to PASS (simulate a genuine handshake).
     monkeypatch.setattr(e, "enforce_verification",
                         lambda f: (_FakePassReport(), False))
+    monkeypatch.setattr("handshaker.core.engine.time.sleep", lambda *a, **k: None)
 
+    # record_capture FKs to sessions(id) — a real session must exist.
+    session_id = e.db.start_session("wlan0mon")
     stats = RunStats()
-    ok = e._pmf_fallback_capture("wlan0mon", ap, stats, 1)
+    ok = e._pmf_fallback_capture("wlan0mon", ap, stats, session_id)
     assert ok is True
     assert stats.handshakes_captured == 1
 

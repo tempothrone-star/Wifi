@@ -381,8 +381,10 @@ class HandshakeVerifier:
             )
             frame.message = _classify_message(frame)
 
-            # De-duplicate: same (bssid, src, dst, message, nonce) = retransmit.
-            dedup_key = (bssid, src, dst, frame.message, nonce)
+            # De-duplicate only truly identical retransmissions. MIC + replay
+            # counter are part of identity so two distinct M2s with the same
+            # nonce (different MIC/RC) are not collapsed.
+            dedup_key = (bssid, src, dst, frame.message, nonce, mic, replay_counter)
             if dedup_key in seen:
                 continue
             seen.add(dedup_key)
@@ -497,23 +499,40 @@ def _parse_counter(value: str) -> int | None:
     return None
 
 
+def _nonce_is_present(nonce: str) -> bool:
+    """True when the nonce field carries a real (non-zero) 802.11 nonce.
+
+    EAPOL-Key frames have a *fixed* 32-byte nonce field. M4 normally fills it
+    with zeros rather than omitting it, so ``bool(nonce)`` is the wrong test:
+    ``"00"*32`` is truthy in Python and would mis-classify a real M4 as M2.
+    """
+    if not nonce:
+        return False
+    compact = nonce.replace(":", "").replace(" ", "").replace("-", "").lower()
+    if not compact or set(compact) <= {"0"}:
+        return False
+    return True
+
+
 def _classify_message(f: EapolFrame) -> int:
     """Classify an EAPOL-Key frame as M1..M4, or 0 if ambiguous.
 
-    Pure lookup from Wireshark's decoded flags:
+    Prefer Wireshark's own ``msgnr`` (1-4) when present — that is the
+    dissection we already paid tshark to do. Fall back to flag lookup:
 
         M1: Key ACK set, no MIC            (ANonce)
         M3: Key ACK + Install + MIC        (GTK)
-        M2: MIC, no ACK/Install, nonce     (SNonce)
-        M4: MIC, no ACK/Install, no nonce
+        M2: MIC, no ACK/Install, *non-zero* nonce     (SNonce)
+        M4: MIC, no ACK/Install, absent *or all-zero* nonce
     """
-    has_nonce = bool(f.nonce)
+    if f.msgnr in (1, 2, 3, 4):
+        return int(f.msgnr)
     if f.has_ack and not f.has_mic:
         return 1
     if f.has_mic and f.has_ack and f.has_install:
         return 3
     if f.has_mic and not f.has_ack and not f.has_install:
-        return 2 if has_nonce else 4
+        return 2 if _nonce_is_present(f.nonce) else 4
     return 0
 
 
@@ -549,10 +568,10 @@ def _structural_problem(ev: HandshakeEvidence) -> str | None:
                 if parse_mac(f.src) != sta_mac:
                     return f"message {msg} did not originate from the STA (src={f.src})"
 
-    # Nonce presence: M1 (ANonce) and M2 (SNonce) must carry a nonce.
-    if not any(f.nonce for f in by_msg[1]):
+    # Nonce presence: M1 (ANonce) and M2 (SNonce) must carry a *non-zero* nonce.
+    if not any(_nonce_is_present(f.nonce) for f in by_msg[1]):
         return "message 1 is missing its ANonce"
-    if not any(f.nonce for f in by_msg[2]):
+    if not any(_nonce_is_present(f.nonce) for f in by_msg[2]):
         return "message 2 is missing its SNonce"
 
     # Nonce / MIC structural checks (length validation on the dissected hex).
@@ -565,19 +584,27 @@ def _structural_problem(ev: HandshakeEvidence) -> str | None:
             if f.mic and len(f.mic) != MIC_HEX_LEN:
                 return f"message {msg} has a malformed MIC length ({len(f.mic)})"
 
-    # Replay counter monotonicity — PER-DIRECTION (per transmitter).
-    by_src: dict[str, list[EapolFrame]] = {}
-    for f in ev.frames:
-        by_src.setdefault(f.src, []).append(f)
-    for src, frames in by_src.items():
-        seq = sorted(frames, key=lambda f: f.frame_number)
-        last_rc: int | None = None
-        for f in seq:
-            if f.replay_counter is None:
-                continue
-            if last_rc is not None and f.replay_counter < last_rc:
-                return f"replay counter decreased for {src}: {f.replay_counter} < {last_rc}"
-            last_rc = f.replay_counter
+    # Replay-counter monotonicity is checked *per handshake*, not across every
+    # EAPOL frame from a MAC in a long capture (a later re-auth legitimately
+    # restarts the counter). Pair M1/M3 that share an ANonce, and M2/M4 from
+    # the same STA in frame-number order.
+    for m1 in by_msg[1]:
+        for m3 in by_msg[3]:
+            if m1.nonce and m3.nonce and m1.nonce == m3.nonce:
+                if (m1.replay_counter is not None and m3.replay_counter is not None
+                        and m3.replay_counter < m1.replay_counter):
+                    return (f"replay counter decreased within handshake for {m1.src}: "
+                            f"{m3.replay_counter} < {m1.replay_counter}")
+    if sta_mac:
+        m2s = sorted((f for f in by_msg[2] if parse_mac(f.src) == sta_mac),
+                     key=lambda f: f.frame_number)
+        m4s = sorted((f for f in by_msg[4] if parse_mac(f.src) == sta_mac),
+                     key=lambda f: f.frame_number)
+        for m2, m4 in zip(m2s, m4s):
+            if (m2.replay_counter is not None and m4.replay_counter is not None
+                    and m4.replay_counter < m2.replay_counter):
+                return (f"replay counter decreased for {sta_mac}: "
+                        f"{m4.replay_counter} < {m2.replay_counter}")
 
     return None
 

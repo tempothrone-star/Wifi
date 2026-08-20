@@ -104,6 +104,21 @@ def test_complete_handshake_still_valid():
     assert _structural_problem(_full()) is None
 
 
+def test_two_handshakes_with_reset_counter_are_not_rejected():
+    """A later re-auth restarts the replay counter; that must not fail the file."""
+    first = _full(ap_rc=(2, 3), sta_rc=(1, 2)).frames
+    # Second exchange uses a different ANonce so it is a distinct handshake.
+    other = "d" * 64
+    second = [
+        _frame(AP, ack=True, mic=False, nonce=other, rc=1, num=10),
+        _frame(STA, mic=True, nonce=other, rc=1, num=11),
+        _frame(AP, ack=True, install=True, mic=True, nonce=other, rc=2, num=12),
+        _frame(STA, mic=True, nonce="", rc=2, num=13),
+    ]
+    ev = _evidence(first + second)
+    assert _structural_problem(ev) is None
+
+
 # --------------------------------------------------------------------------- #
 # PMKID vs EAPOL in 22000 files
 # --------------------------------------------------------------------------- #

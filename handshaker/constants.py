@@ -13,7 +13,23 @@ from pathlib import Path
 # Paths
 # --------------------------------------------------------------------------- #
 PKG_ROOT: Path = Path(__file__).resolve().parent
-PROJECT_ROOT: Path = PKG_ROOT.parent
+
+
+def _default_project_root() -> Path:
+    """Checkout root when developing; otherwise the process working directory.
+
+    After ``pip install .`` this package lives under site-packages, so
+    ``PKG_ROOT.parent / "data"`` would write into the install tree. Prefer a
+    source checkout (``pyproject.toml`` / ``config/config.yaml`` next to the
+    parent) and fall back to ``cwd`` for installed deployments.
+    """
+    src = PKG_ROOT.parent
+    if (src / "pyproject.toml").exists() or (src / "config" / "config.yaml").exists():
+        return src
+    return Path.cwd()
+
+
+PROJECT_ROOT: Path = _default_project_root()
 CONFIG_DIR: Path = PROJECT_ROOT / "config"
 DATA_DIR: Path = PROJECT_ROOT / "data"
 
@@ -24,6 +40,25 @@ QUARANTINE_DIR: Path = DATA_DIR / "quarantine"  # fails verification -> retained
 LEARNING_DIR: Path = DATA_DIR / "learning"      # adaptive strategy state
 
 DEFAULT_CONFIG: Path = CONFIG_DIR / "config.yaml"
+
+
+def rebind_data_dirs(output_root: str | Path | None) -> None:
+    """Honour ``general.output_root`` (and installed-package cwd defaults).
+
+    Mutates the module-level directory constants so later lookups via
+    ``handshaker.constants.HANDSHAKES_DIR`` (attribute access) see the new
+    location. Call this from ``load_config`` *before* constructing Engine.
+    """
+    global DATA_DIR, CAPTURES_DIR, HANDSHAKES_DIR, PMKID_DIR, QUARANTINE_DIR, LEARNING_DIR
+    base = Path(output_root).expanduser().resolve() if output_root else (PROJECT_ROOT / "data")
+    DATA_DIR = base
+    CAPTURES_DIR = base / "captures"
+    HANDSHAKES_DIR = base / "handshakes"
+    PMKID_DIR = base / "pmkid"
+    QUARANTINE_DIR = base / "quarantine"
+    LEARNING_DIR = base / "learning"
+    for d in (CAPTURES_DIR, HANDSHAKES_DIR, PMKID_DIR, QUARANTINE_DIR, LEARNING_DIR):
+        d.mkdir(parents=True, exist_ok=True)
 
 # --------------------------------------------------------------------------- #
 # Exit codes

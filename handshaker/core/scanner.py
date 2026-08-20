@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..constants import BAND_2G, BAND_5G, TOOL_AIRODUMP_NG
+from ..constants import BAND_2G, BAND_5G, BAND_6G, TOOL_AIRODUMP_NG
 from ..exceptions import CaptureError
 from ..tools.registry import ToolRegistry
 from ..utils.proc import run
@@ -48,7 +48,10 @@ class AccessPoint:
             return BAND_2G
         if 36 <= self.channel <= 177:
             return BAND_5G
-        return BAND_5G  # 6GHz channels are uncommon in airodump; fall back 5G
+        # Do NOT lie and call unknown/6 GHz channels "5GHz".
+        if self.channel > 0:
+            return BAND_6G
+        return "unknown"
 
     @property
     def frequency(self) -> int | None:
